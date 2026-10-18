@@ -64,7 +64,7 @@ window.FIREBASE_CONFIG = {
 1. <https://github.com/> にログインし、右上の「＋」→「New repository」
 2. Repository name を入れる（例：`form-note`）。**Public** を選んで「Create repository」
 3. 表示されたページの「uploading an existing file」を押す
-4. このフォルダの**中身をすべて**（`index.html`、`config.js`、`js`、`model_s`、`model_n`、`icons` などのフォルダも含めて）ドラッグ＆ドロップし、下の「Commit changes」を押す
+4. このフォルダの**中身をすべて**（`index.html`、`config.js`、`js`、`pose_s`、`pose_n`、`icons` などのフォルダも含めて）ドラッグ＆ドロップし、下の「Commit changes」を押す
    - ChromeかEdgeなら、フォルダごとドラッグできます
 5. リポジトリの「Settings」→ 左の「Pages」→「Branch」で `main` と `/ (root)` を選んで「Save」
 6. 数分待つと、ページの上に公開URL（`https://ユーザー名.github.io/form-note/`）が表示されます
@@ -130,7 +130,7 @@ window.FIREBASE_CONFIG = {
 | `js/firebase.js` | 自動ログインと記録・名簿の保存 |
 | `config.js` | Firebaseの設定（自分で貼る） |
 | `firestore.rules` | データの権限ルール（Firebaseに貼る） |
-| `model_s/`、`model_n/` | 骨格推定AI（YOLO11 姿勢推定。標準／速さ優先） |
+| `pose_s/`、`pose_n/` | 骨格推定AI（YOLO11 姿勢推定。標準／速さ優先） |
 | `sw.js`、`manifest.webmanifest`、`icons/` | ホーム画面に追加・オフライン用 |
 
 ## あとで「選手は自分の記録だけ」に切り替えるとき

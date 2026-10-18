@@ -68,42 +68,80 @@ function fillPlayerSelects() {
 }
 
 // ===================== AIモデル（YOLO姿勢推定をTF.jsで） =====================
+// AIに入れる画像の大きさ。選手のまわりを切り取ってから入れるので、小さめでも選手は大きく写る
+const NET = 384;
 const models = {};
 async function loadModel(kind, onProgress) {
   if (models[kind]) return models[kind];
   try { await tf.setBackend("webgl"); } catch (e) { await tf.setBackend("cpu"); }
   await tf.ready();
   tf.enableProdMode();
-  const m = await tf.loadGraphModel(`model_${kind}/model.json`, { onProgress });
-  tf.tidy(() => { m.execute(tf.zeros([1, 640, 640, 3])); });
+  const m = await tf.loadGraphModel(`pose_${kind}/model.json`, { onProgress });
+  tf.tidy(() => { m.execute(tf.zeros([1, NET, NET, 3])); });
   models[kind] = m;
   return m;
 }
-const lb = document.createElement("canvas"); lb.width = 640; lb.height = 640;
-const lbCtx = lb.getContext("2d", { willReadFrequently: false });
-// 1コマ分：映っている人の枠と17か所の関節（動画の座標）を返す
-async function inferFrame(model, source, W, H) {
-  const s = 640 / Math.max(W, H), nw = Math.round(W * s), nh = Math.round(H * s);
-  const left = Math.floor((640 - nw) / 2), top = Math.floor((640 - nh) / 2);
-  lbCtx.fillStyle = "rgb(114,114,114)"; lbCtx.fillRect(0, 0, 640, 640);
-  lbCtx.drawImage(source, left, top, nw, nh);
-  const K = 30;
+// 他のアプリに切り替えると、スマホがGPU（AIの計算に使う部分）を取り上げることがある。そのときは作り直して続ける
+async function recoverModel(kind) {
+  delete models[kind];
+  try {
+    const name = tf.getBackend();
+    const factory = tf.findBackendFactory(name);
+    if (factory) { tf.removeBackend(name); tf.registerBackend(name, factory); }
+  } catch (e) { /* 作り直せなくても下で読み込み直す */ }
+  return loadModel(kind, () => {});
+}
+// GPUを取り上げられていないか（取り上げられると、計算結果がすべて0になってしまう）
+function gpuLost() {
+  try { return tf.getBackend() === "webgl" && tf.backend().gpgpu.gl.isContextLost(); } catch (e) { return false; }
+}
+// 画面が見えるようになるまで待つ（他のアプリに切り替えている間は解析を止めておく）
+function waitVisible() {
+  if (!document.hidden) return Promise.resolve(0);
+  const t0 = performance.now();
+  return new Promise((res) => {
+    const on = () => { if (!document.hidden) { document.removeEventListener("visibilitychange", on); setTimeout(() => res(performance.now() - t0), 300); } };
+    document.addEventListener("visibilitychange", on);
+  });
+}
+const mkCanvas = () => { const c = document.createElement("canvas"); c.width = NET; c.height = NET; return c; };
+const lbFull = mkCanvas(), lbCrop = mkCanvas();
+// 動画のコマをAI用の正方形に描く。roi（選手のまわり）があればそこを拡大、なければ全体を縮小
+function drawNet(cv, source, W, H, roi) {
+  const ctx = cv.getContext("2d");
+  let s, left, top;
+  if (roi) { s = NET / roi.side; left = -(roi.cx - roi.side / 2) * s; top = -(roi.cy - roi.side / 2) * s; }
+  else { s = NET / Math.max(W, H); left = Math.floor((NET - W * s) / 2); top = Math.floor((NET - H * s) / 2); }
+  ctx.fillStyle = "rgb(114,114,114)"; ctx.fillRect(0, 0, NET, NET);
+  ctx.drawImage(source, left, top, W * s, H * s);
+  return { cv, s, left, top };
+}
+// 追いかけている選手のまわりの正方形（動画の座標）。見失っているときは null（全体を見る）
+function roiFor(track, W, H) {
+  if (!track.prev || !track.h || track.lost > 0) return null;
+  const side = Math.max(1.6 * track.h, 1.4 * (track.w || 0));
+  if (side > 0.9 * Math.max(W, H)) return null;
+  return { cx: track.prev[0], cy: track.prev[1], side };
+}
+// 描いたAI用の画像から、映っている人の枠と17か所の関節（動画の座標）を返す
+async function runNet(model, g) {
+  const K = 30, { s, left, top } = g;
   const [vals, cols] = tf.tidy(() => {
-    const x = tf.browser.fromPixels(lb).toFloat().div(255).expandDims(0);
+    const x = tf.browser.fromPixels(g.cv).toFloat().div(255).expandDims(0);
     const r = model.execute(x).squeeze([0]);
     const conf = r.slice([4, 0], [1, -1]).squeeze([0]);
-    const top = tf.topk(conf, K);
-    return [top.values, tf.gather(r, top.indices, 1)];
+    const tp = tf.topk(conf, K);
+    return [tp.values, tf.gather(r, tp.indices, 1)];
   });
   const v = await vals.data(), c = await cols.data();
   vals.dispose(); cols.dispose();
   const cand = [];
   for (let j = 0; j < K; j++) {
     if (v[j] < 0.25) continue;
-    const g = (row) => c[row * K + j];
-    const box = [(g(0) - left) / s, (g(1) - top) / s, g(2) / s, g(3) / s];
+    const gg = (row) => c[row * K + j];
+    const box = [(gg(0) - left) / s, (gg(1) - top) / s, gg(2) / s, gg(3) / s];
     const xy = [], cf = [];
-    for (let k = 0; k < 17; k++) { xy.push([(g(5 + 3 * k) - left) / s, (g(6 + 3 * k) - top) / s]); cf.push(g(7 + 3 * k)); }
+    for (let k = 0; k < 17; k++) { xy.push([(gg(5 + 3 * k) - left) / s, (gg(6 + 3 * k) - top) / s]); cf.push(gg(7 + 3 * k)); }
     cand.push({ conf: v[j], box, xy, cf });
   }
   const iou = (a, b) => {
@@ -116,6 +154,8 @@ async function inferFrame(model, source, W, H) {
   for (const p of cand.sort((a, b) => b.conf - a.conf)) if (kept.every((q) => iou(p.box, q.box) < 0.6)) kept.push(p);
   return kept;
 }
+// 1コマ全体を見る（最初のコマ・選手選び用）
+async function inferFrame(model, source, W, H) { return runNet(model, drawNet(lbFull, source, W, H, null)); }
 
 // ===================== 動画まわり =====================
 function seek(video, t) {
@@ -334,7 +374,8 @@ async function runAnalysis() {
   const prog = (p, msg) => { $("progBar").style.width = `${Math.round(p * 100)}%`; $("progText").textContent = msg; };
   try {
     prog(0, "AIを読み込み中…");
-    const model = await loadModel($("modelKind").value, (p) => prog(p * 0.1, `AIを読み込み中… ${Math.round(p * 100)}%`));
+    const kind = $("modelKind").value;
+    let model = await loadModel(kind, (p) => prog(p * 0.1, `AIを読み込み中… ${Math.round(p * 100)}%`));
     S.stride = Math.max(1, Math.round(realFps / 60));
     S.k0 = Math.floor(t0 * fileFps);
     const k1 = Math.floor(t1 * fileFps);
@@ -358,23 +399,55 @@ async function runAnalysis() {
     if (S.target) {
       // タップした位置に一番近い人から始める
       const near = first.slice().sort((p, q) => Math.hypot(p.box[0] - S.target[0], p.box[1] - S.target[1]) - Math.hypot(q.box[0] - S.target[0], q.box[1] - S.target[1]))[0];
-      track.prev = near ? [near.box[0], near.box[1]] : S.target.slice(); track.h = near ? near.box[3] : null;
+      track.prev = near ? [near.box[0], near.box[1]] : S.target.slice(); track.h = near ? near.box[3] : null; track.w = near ? near.box[2] : null;
     }
     const maxLost = Math.round(0.5 * fileFps / S.stride);
-    const started = performance.now();
+    let started = performance.now(), fails = 0;
+    await seek(video, (ks[0] + 0.5) / fileFps);
     for (let n = 0; n < ks.length; n++) {
       if (S.cancel) throw new Error("cancel");
-      await seek(video, (ks[n] + 0.5) / fileFps);
-      const persons = await inferFrame(model, video, S.W, S.H);
-      const p = trackPick(persons, track, maxLost);
+      // 他のアプリに切り替えている間は止めて、戻ってきたら同じコマから続ける
+      if (document.hidden) {
+        prog(0.1 + 0.85 * n / ks.length, "一時停止中：このアプリに戻ると続きから解析します");
+        started += await waitVisible();
+        try { wake = await navigator.wakeLock?.request("screen"); } catch (e) { /* なくてもよい */ }
+        await seek(video, (ks[n] + 0.5) / fileFps);
+      }
+      let p = null, next = null;
+      try {
+        if (gpuLost()) throw new Error("GPUを取り上げられました");
+        // 今のコマをAI用の画像に描いてから、次のコマの読み込みを先に始める（AIの計算と同時に進む）
+        const roi = roiFor(track, S.W, S.H);
+        const gCrop = roi ? drawNet(lbCrop, video, S.W, S.H, roi) : null;
+        const gFull = drawNet(lbFull, video, S.W, S.H, null);
+        next = n + 1 < ks.length ? seek(video, (ks[n + 1] + 0.5) / fileFps) : null;
+        let persons = gCrop ? await runNet(model, gCrop) : [];
+        // 切り取った中に選手が見つからないときは、全体から探し直す
+        if (!gCrop || !persons.length || persons[0].conf < 0.4) persons = await runNet(model, gFull);
+        if (gpuLost()) throw new Error("GPUを取り上げられました");
+        p = trackPick(persons, track, maxLost);
+      } catch (err) {
+        // GPUを取り上げられたなど：AIを作り直して、同じコマをやり直す
+        if (S.cancel) throw new Error("cancel");
+        if (++fails > 5) throw err;
+        console.warn("AIを作り直します", err);
+        prog(0.1 + 0.85 * n / ks.length, "AIを準備し直しています…");
+        if (next) await next;
+        await waitVisible();
+        model = await recoverModel(kind);
+        await seek(video, (ks[n] + 0.5) / fileFps);
+        n--; continue;
+      }
       if (p) { S.KP.push({ xy: p.xy, cf: p.cf, box: p.box }); S.F.push(AN.frameFeatures(p.xy, p.cf, 0.5)); }
       else { S.KP.push(null); S.F.push({}); }
+      if (next) await next;
       if (n % 3 === 0 || n === ks.length - 1) {
         drawOverlay();
         const el = (performance.now() - started) / 1000, per = el / (n + 1), rest = per * (ks.length - n - 1);
-        prog(0.1 + 0.85 * (n + 1) / ks.length, `骨格を推定中 ${n + 1} / ${ks.length} コマ（残り約${Math.ceil(rest)}秒）`);
+        prog(0.1 + 0.85 * (n + 1) / ks.length, `骨格を推定中 ${n + 1} / ${ks.length} コマ（残り約${fmtRest(rest)}）`);
       }
     }
+    S.perFrameMs = (performance.now() - started) / ks.length;
     prog(0.96, "スイング・投球を探しています…");
     const A = AN.analyze(S.F, realFps / S.stride, mode, hand);
     S.A = A; S.dir = AN.targetDirection(S.F, A);
@@ -397,16 +470,17 @@ function trackPick(persons, st, maxLost) {
   if (!persons.length) { st.lost++; return null; }
   if (!st.prev) {
     const i = AN.pickPerson(persons.map((p) => p.box), null);
-    const p = persons[i]; st.prev = [p.box[0], p.box[1]]; st.h = p.box[3]; st.lost = 0; return p;
+    const p = persons[i]; st.prev = [p.box[0], p.box[1]]; st.h = p.box[3]; st.w = p.box[2]; st.lost = 0; return p;
   }
   const scale = st.h || Math.max(...persons.map((p) => p.box[3]));
   let best = null, bd = Infinity;
   for (const p of persons) { const d = Math.hypot(p.box[0] - st.prev[0], p.box[1] - st.prev[1]) / scale; if (d < bd) { bd = d; best = p; } }
   if (bd < 0.6 || st.lost > maxLost) {
-    st.prev = [best.box[0], best.box[1]]; st.h = 0.7 * st.h + 0.3 * best.box[3] || best.box[3]; st.lost = 0; return best;
+    st.prev = [best.box[0], best.box[1]]; st.h = 0.7 * st.h + 0.3 * best.box[3] || best.box[3]; st.w = best.box[2]; st.lost = 0; return best;
   }
   st.lost++; return null;
 }
+const fmtRest = (sec) => (sec >= 90 ? `${Math.round(sec / 60)}分` : `${Math.ceil(sec)}秒`);
 // 解析コマ番号 → 動画の時刻
 const fileTimeOf = (j) => (S.k0 + j * S.stride + 0.5) / S.fileFps;
 // 実時間1秒が動画上で何秒か（スロー動画の補正。通常は1）
