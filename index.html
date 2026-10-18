@@ -218,34 +218,19 @@ header.top .in { flex-wrap: wrap; row-gap: 6px; }
 
 <!-- ===================== 解析 ===================== -->
 <section id="tab-analyze" class="stack" aria-label="解析">
-  <div class="card" id="emptyAnalyze">
-    <div class="empty">
-      <h2>動画から、角度と大事な瞬間を自動で取り出します</h2>
-      <ol class="steps">
-        <li>打撃や投球の動画を選ぶ（横から、全身が入っているもの）</li>
-        <li>打撃か投球か、右か左かを選んで「解析する」</li>
-        <li>スイング・投球が1回ずつ見つかります。着地とインパクト（リリース）の瞬間の角度、膝の伸び、頭の移動が表になります</li>
-        <li>気になる1回は、スロー再生・動画で保存・記録に保存ができます</li>
-      </ol>
-      <p class="small muted">10秒の動画で、スマホなら1〜2分ほどかかります。最初の1回だけ、AIの読み込み（約20MB）があります。</p>
-    </div>
-  </div>
+  <div id="emptyAnalyze" hidden></div>
   <div class="card">
-    <div class="eyebrow">STEP 1　動画を選ぶ</div>
     <div class="pick">
       <div class="file-drop">
         <input type="file" id="camInput" accept="video/*" capture="environment" aria-label="カメラで撮影する">
-        <strong>撮影する</strong>
-        <span class="small muted">カメラが開きます</span>
+        <strong>撮影</strong>
       </div>
       <div class="file-drop">
         <input type="file" id="fileInput" accept="video/*" aria-label="解析する動画を選ぶ">
         <strong>動画を選ぶ</strong>
-        <span class="small muted">カメラロールから</span>
       </div>
     </div>
-    <button class="btn block" id="camOpenA" type="button">アプリ内カメラで撮る</button>
-    <p class="small muted">動画はスマホの中だけで処理します。スローで撮りたいときは、カメラアプリのスローモーションで撮ってから「動画を選ぶ」で選んでください。</p>
+    <button id="camOpenA" type="button" hidden></button>
     <div id="previewBox" hidden class="stack" style="gap:10px">
       <div class="stage" id="stage">
         <video id="video" playsinline muted preload="auto"></video>
@@ -257,7 +242,7 @@ header.top .in { flex-wrap: wrap; row-gap: 6px; }
   </div>
 
   <div class="card" id="settingsCard">
-    <div class="eyebrow">STEP 2　設定</div>
+    <div class="eyebrow">設定</div>
     <div class="row">
       <div class="seg" role="radiogroup" aria-label="種類">
         <label><input type="radio" name="mode" value="batting" id="modeBat" checked><span>打撃</span></label>
