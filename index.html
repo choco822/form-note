@@ -163,7 +163,7 @@ nav.tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; background: var(--surface); border-top: 1px solid var(--line);
   padding: 6px max(8px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
 }
-nav.tabs .in { max-width: 720px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+nav.tabs .in { max-width: 720px; margin: 0 auto; display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; }
 nav.tabs button {
   appearance: none; border: 0; background: transparent; color: var(--muted); display: grid; justify-items: center; gap: 2px;
   font-size: 11px; font-weight: 700; padding: 6px 2px; border-radius: 10px; min-height: 50px;
@@ -200,6 +200,78 @@ header.top .in { flex-wrap: wrap; row-gap: 6px; }
 .cam .info { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; color: #fff; font-size: 13px; background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 8px; }
 .member { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .member:last-child { border-bottom: 0; }
+
+/* ===== 一球チャート ===== */
+body.chart-live header.top { display: none; }
+body.chart-live #appMain { padding-top: 10px !important; }
+.ch-help summary { cursor: pointer; }
+.ch-help .steps { margin-top: 8px; }
+.ch-help .steps li { font-size: 13px; }
+.ch-tips { margin: 4px 0 0; padding-left: 1.2em; font-size: 13px; display: grid; gap: 3px; }
+.ch-game { display: grid; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.ch-game:last-child { border-bottom: 0; }
+.ch-lrow { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.ch-lrow > .grow { flex: 1 1 auto; min-width: 0; }
+.ch-no { width: 22px; text-align: center; font-family: var(--font-mono); font-weight: 700; color: var(--muted); flex: none; }
+.ch-num { width: 4.6em; flex: none; }
+.ch-hand { width: auto; flex: none; }
+.cl-status { gap: 6px; padding: 10px 12px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 4px); z-index: 15; }
+.cl-video ~ .cl-status { position: static; }
+.cl-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cl-inning { font-family: var(--font-display); font-size: 18px; }
+.cl-bso { display: inline-flex; align-items: center; gap: 3px; font-family: var(--font-mono); font-weight: 700; font-size: 12px; }
+.cl-bso span { margin-left: 6px; color: var(--muted); }
+.cl-bso i { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--line); display: inline-block; }
+.cl-bso i.b { background: #46a758; border-color: #46a758; }
+.cl-bso i.s { background: #f5a524; border-color: #f5a524; }
+.cl-bso i.o { background: var(--accent); border-color: var(--accent); }
+.cl-who { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; width: 100%; text-align: left; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; color: var(--ink); font: inherit; cursor: pointer; }
+.cl-tag { font-size: 11px; font-weight: 700; color: var(--surface); background: var(--ink); border-radius: 4px; padding: 0 5px; }
+.cl-input { gap: 10px; padding: 12px; }
+.cl-types, .cl-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+.toast { pointer-events: none; }
+body.chart-live .toast { top: calc(env(safe-area-inset-top, 0px) + 8px); bottom: auto; }
+.cl-type { min-height: 40px; border-radius: 8px; border: 1.5px solid var(--line); border-left: 5px solid var(--tc, var(--line)); background: var(--surface-2); color: var(--ink); font: inherit; font-size: 13px; line-height: 1.15; font-weight: 700; padding: 3px 4px; cursor: pointer; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cl-type.on { background: var(--ink); color: var(--surface); border-color: var(--ink); border-left-color: var(--tc, var(--ink)); }
+.cl-zonebox { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 10px; align-items: start; margin-top: 8px; }
+.cl-zone { width: 100%; aspect-ratio: 1 / 1.05; border-radius: 8px; touch-action: none; cursor: crosshair; display: block; }
+.cl-results { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cl-results .btn { min-height: 52px; font-size: 16px; }
+.btn.turf { background: var(--turf); border-color: var(--turf); color: #ffffff; }
+.cl-pa { display: grid; gap: 4px; }
+.cl-adjust { display: grid; gap: 8px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.cl-al { width: 5.5em; color: var(--muted); }
+.sheet-back { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.45); display: flex; align-items: flex-end; justify-content: center; }
+.sheet-back[hidden] { display: none; }
+.sheet-panel { background: var(--surface); width: 100%; max-width: 720px; max-height: 92vh; overflow: auto; border-radius: 14px 14px 0 0; padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 10px; }
+.cl-pos { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+.cl-pos .cl-type { min-height: 38px; border-left-width: 1.5px; text-align: center; }
+.cl-view { flex-direction: column; border-radius: 12px; }
+.cl-view span { padding: 6px 10px; font-size: 12px; border-radius: 9px !important; text-align: center; }
+.cl-field { width: 100%; aspect-ratio: 1.45 / 1; touch-action: none; display: block; cursor: crosshair; }
+.cl-pick { display: flex; flex-wrap: wrap; gap: 6px; max-height: 40vh; overflow: auto; }
+.cl-list { display: grid; gap: 2px; max-height: 60vh; overflow: auto; }
+.cl-lh { font-size: 12px; font-weight: 700; color: var(--muted); padding: 8px 2px 2px; }
+.cl-li { display: flex; align-items: center; gap: 8px; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--line); padding: 7px 4px; color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
+.cl-li.on { background: var(--turf-soft); }
+.cl-li.todo span:nth-child(4) { color: var(--accent); }
+.cl-lt { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--line); margin-right: 6px; flex: none; vertical-align: middle; }
+.st-table tr[data-who] { cursor: pointer; }
+table.st-table td:first-child, table.st-table th:first-child { white-space: nowrap; }
+.st-table tr.on td { background: var(--turf-soft); }
+.st-zone { width: 100%; aspect-ratio: 1 / 1.05; display: block; border-radius: 8px; }
+.st-field { width: 100%; aspect-ratio: 1.45 / 1; display: block; }
+@media (min-width: 900px) {
+  body.chart-live .wrap { max-width: 1200px; }
+  body.chart-live #tab-chart #chartRoot { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; }
+  body.chart-live #tab-chart #chartRoot { grid-template-rows: auto auto 1fr; }
+  body.chart-live #tab-chart #chartRoot > .cl-video { grid-column: 1; grid-row: 1 / span 2; }
+  body.chart-live #tab-chart #chartRoot > .cl-listcard { grid-column: 1; grid-row: 3; }
+  body.chart-live #tab-chart #chartRoot > .cl-status { grid-column: 2; grid-row: 1; position: static; }
+  body.chart-live #tab-chart #chartRoot > .cl-input { grid-column: 2; grid-row: 2 / span 2; }
+  body.chart-live .cl-types { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+  body.chart-live .cl-zone { max-width: 300px; }
+}
 </style>
 </head>
 <body>
@@ -297,6 +369,8 @@ header.top .in { flex-wrap: wrap; row-gap: 6px; }
 </section>
 
 <!-- ===================== 記録 ===================== -->
+<section id="tab-chart" class="stack" hidden aria-label="一球チャート"><div id="chartRoot" class="stack"></div></section>
+
 <section id="tab-records" class="stack" hidden aria-label="記録">
   <div class="card" id="recDetail" hidden></div>
   <div class="card">
@@ -386,6 +460,8 @@ header.top .in { flex-wrap: wrap; row-gap: 6px; }
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="4.5" r="2"/><path d="M12 7v6l-3 7M12 13l3 7M7 10l5-1 5 1"/></svg>解析</button>
   <button role="tab" aria-selected="false" data-tab="compare" id="t-compare">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="8" height="14" rx="1.5"/><rect x="13" y="5" width="8" height="14" rx="1.5"/></svg>比較</button>
+  <button role="tab" aria-selected="false" data-tab="chart" id="t-chart">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="16" rx="1.5"/><path d="M9.7 4v16M14.3 4v16M5 9.3h14M5 14.7h14"/></svg>チャート</button>
   <button role="tab" aria-selected="false" data-tab="records" id="t-records">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 5-6"/></svg>記録</button>
   <button role="tab" aria-selected="false" data-tab="speed" id="t-speed">
@@ -411,6 +487,7 @@ header.top .in { flex-wrap: wrap; row-gap: 6px; }
 <script src="js/mp4box.all.min.js"></script>
 <script src="js/frames.js"></script>
 <script src="js/app.js"></script>
+<script src="js/chart.js"></script>
 <script type="module" src="js/firebase.js"></script>
 </body>
 </html>

@@ -29,13 +29,43 @@ service cloud.firestore {
       allow update: if false;
     }
 
+    // 選手の名簿（自チーム・相手チーム）。team が空なら自チーム
+    function validPlayer(d) {
+      return d.keys().hasOnly(['name', 'createdAt', 'team', 'number', 'throws', 'bats'])
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 40
+        && (!('team' in d) || (d.team is string && d.team.size() <= 40))
+        && (!('number' in d) || (d.number is string && d.number.size() <= 4))
+        && (!('throws' in d) || d.throws in ['R', 'L'])
+        && (!('bats' in d) || d.bats in ['R', 'L', 'S']);
+    }
     match /players/{pid} {
       allow read, delete: if signedIn();
-      allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['name', 'createdAt'])
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40;
-      allow update: if false;
+      allow create, update: if signedIn() && validPlayer(request.resource.data);
+    }
+
+    // 一球チャート：試合（打順や今のカウントなども入る）
+    match /games/{gid} {
+      allow read, delete: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.opponent is string && request.resource.data.opponent.size() <= 40
+        && request.resource.data.date is string;
+    }
+    // 一球チャート：1球ずつの記録（試合後に動画を見ながら、球種やコースを足すこともある）
+    function validPitch(d) {
+      return d.gameId is string && d.seq is int
+        && d.result in ['B', 'CS', 'SS', 'F', 'X', 'HBP'];
+    }
+    match /pitches/{id} {
+      allow read, delete: if signedIn();
+      allow create: if signedIn() && validPitch(request.resource.data);
+      allow update: if signedIn() && validPitch(request.resource.data)
+        && request.resource.data.gameId == resource.data.gameId;
+    }
+    // 設定（球種の一覧など）
+    match /settings/{key} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && key in ['pitchTypes'] && request.resource.data.types is list && request.resource.data.types.size() <= 40;
+      allow delete: if false;
     }
   }
 }

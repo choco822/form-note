@@ -2,7 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, doc, addDoc, setDoc, getDoc, deleteDoc, collection, onSnapshot, serverTimestamp,
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, addDoc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, collection, onSnapshot, serverTimestamp, query, where,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const cfg = window.FIREBASE_CONFIG || {};
@@ -12,7 +12,10 @@ if (!cfg.apiKey || String(cfg.apiKey).startsWith("ここに")) {
 } else {
   const app = initializeApp(cfg);
   const auth = getAuth(app);
-  const db = getFirestore(app);
+  // 球場で電波が悪くても入力が消えないように、スマホの中にも保存しておく（電波が戻ると自動で送る）
+  let db;
+  try { db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }
+  catch (e) { console.warn("オフライン保存は使えません", e); db = getFirestore(app); }
   // 骨格データは入れ子の配列なので、Firestoreに入れるときは文字列にする
   const toStore = (d) => { const o = { ...d }; if (o.skel) { o.skelJson = JSON.stringify(o.skel); delete o.skel; } return o; };
   const fromStore = (id, d) => { const o = { id, ...d }; if (o.skelJson) { try { o.skel = JSON.parse(o.skelJson); } catch (e) { o.skel = null; } delete o.skelJson; } delete o.serverTime; return o; };
@@ -52,8 +55,35 @@ if (!cfg.apiKey || String(cfg.apiKey).startsWith("ここに")) {
       return { mime, data };
     },
     async deleteClips(rid, n) { for (let i = 0; i < n; i++) { try { await deleteDoc(doc(db, "clips", `${rid}_${i}`)); } catch (e) { console.warn(e); } } },
-    async addPlayer(name) { const r = await addDoc(collection(db, "players"), { name, createdAt: new Date().toISOString() }); return r.id; },
+    // extra：{ team（相手チーム名。自チームは空）, number（背番号）, throws（投 R/L）, bats（打 R/L/S） }
+    async addPlayer(name, extra = {}) {
+      const d = { name, createdAt: new Date().toISOString() };
+      for (const k of ["team", "number", "throws", "bats"]) if (extra[k]) d[k] = String(extra[k]);
+      const r = await addDoc(collection(db, "players"), d); return r.id;
+    },
+    async updatePlayer(id, patch) { await updateDoc(doc(db, "players", id), patch); },
     async deletePlayer(id) { await deleteDoc(doc(db, "players", id)); },
+
+    // ===== 一球チャート =====
+    watchGames(cb, onError) { return onSnapshot(collection(db, "games"), (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data() }))), onError); },
+    async addGame(data) { const r = await addDoc(collection(db, "games"), data); return r.id; },
+    async updateGame(id, patch) { await updateDoc(doc(db, "games", id), patch); },
+    async deleteGame(id) {
+      const s = await getDocs(query(collection(db, "pitches"), where("gameId", "==", id)));
+      for (const d of s.docs) await deleteDoc(d.ref);
+      await deleteDoc(doc(db, "games", id));
+    },
+    // 電波が悪くて、まだ送れていない球の数も返す
+    watchPitches(gameId, cb, onError) {
+      return onSnapshot(query(collection(db, "pitches"), where("gameId", "==", gameId)), { includeMetadataChanges: true },
+        (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data() })), s.docs.filter((d) => d.metadata.hasPendingWrites).length), onError);
+    },
+    async getPitches(gameId) { const s = await getDocs(query(collection(db, "pitches"), where("gameId", "==", gameId))); return s.docs.map((d) => ({ id: d.id, ...d.data() })); },
+    async addPitch(id, data) { await setDoc(doc(db, "pitches", id), data); },
+    async updatePitch(id, patch) { await updateDoc(doc(db, "pitches", id), patch); },
+    async deletePitch(id) { await deleteDoc(doc(db, "pitches", id)); },
+    watchSetting(key, cb, onError) { return onSnapshot(doc(db, "settings", key), (s) => cb(s.exists() ? s.data() : null), onError); },
+    async setSetting(key, data) { await setDoc(doc(db, "settings", key), data); },
   };
   window.dispatchEvent(new Event("fb-ready"));
 }

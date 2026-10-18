@@ -20,12 +20,13 @@ const pref = {
 };
 
 // ===================== タブ =====================
-const TABS = ["analyze", "compare", "records", "speed"];
+const TABS = ["analyze", "compare", "chart", "records", "speed"];
 function showTab(name) {
   for (const t of TABS) { $("tab-" + t).hidden = t !== name; $("t-" + t).setAttribute("aria-selected", String(t === name)); }
   pref.set("tab", name);
   if (name === "records") renderRecords();
   if (name === "compare") fillCompareOptions();
+  if (window.Chart) Chart.onShow(name);
   window.scrollTo({ top: 0 });
 }
 document.querySelectorAll("nav.tabs button").forEach((b) => b.addEventListener("click", () => { if (b.dataset.tab === "records" && recDetailId) closeRecDetail(); showTab(b.dataset.tab); }));
@@ -42,7 +43,9 @@ const Store = {
       this.emit();
     }, () => toast("記録を読み込めませんでした。通信状態を確認してください"));
     FB.watchPlayers((ps) => {
-      this.users = ps.sort((x, y) => (x.name || "").localeCompare(y.name || "", "ja"));
+      const sorted = ps.sort((x, y) => (x.name || "").localeCompare(y.name || "", "ja"));
+      this.allPlayers = sorted; // 相手チームの選手も入る（一球チャート用）
+      this.users = sorted.filter((p) => !p.team); // 自チームだけ
       fillPlayerSelects(); this.emit();
     }, () => toast("名簿を読み込めませんでした"));
   },
@@ -1291,7 +1294,7 @@ $("camRec").addEventListener("click", () => {
   const tab = pref.get("tab", "analyze"); showTab(TABS.includes(tab) ? tab : "analyze");
   const go = () => {
     if (!window.FB) { $("connectView").hidden = true; $("setupView").hidden = false; return; }
-    FB.start((uid) => { Store.start(uid); showApp(true); renderRecords(); fillCompareOptions(); },
+    FB.start((uid) => { Store.start(uid); if (window.Chart) Chart.start(); showApp(true); renderRecords(); fillCompareOptions(); },
       (e) => { console.error(e); $("connectMsg").textContent = "チームの記録につなげませんでした。Firebaseで「匿名」ログインを有効にしたか確認してください（手順書の2）。"; });
   };
   if (window.FB !== undefined) go();
