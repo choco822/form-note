@@ -127,6 +127,8 @@ window.FIREBASE_CONFIG = {
 | `index.html` | 画面 |
 | `js/app.js` | 画面の動き、動画の解析の流れ、カメラ |
 | `js/analysis.js` | 角度・エラー除去・着地とインパクトの検出（Colabのノートブックと同じ計算） |
+| `js/frames.js` | 動画を頭から順番にデコードしてコマを取り出す（WebCodecs。使えない動画は今まで通りの方法） |
+| `js/mp4box.all.min.js` | mp4の読み込み（mp4box.js、BSD-3-Clause。`js/mp4box.LICENSE.txt`） |
 | `js/firebase.js` | 自動ログインと記録・名簿の保存 |
 | `config.js` | Firebaseの設定（自分で貼る） |
 | `firestore.rules` | データの権限ルール（Firebaseに貼る） |

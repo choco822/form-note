@@ -107,13 +107,16 @@ function waitVisible() {
 const mkCanvas = () => { const c = document.createElement("canvas"); c.width = NET; c.height = NET; return c; };
 const lbFull = mkCanvas(), lbCrop = mkCanvas();
 // 動画のコマをAI用の正方形に描く。roi（選手のまわり）があればそこを拡大、なければ全体を縮小
-function drawNet(cv, source, W, H, roi) {
+function drawNet(cv, source, W, H, roi, rot = 0) {
   const ctx = cv.getContext("2d");
   let s, left, top;
   if (roi) { s = NET / roi.side; left = -(roi.cx - roi.side / 2) * s; top = -(roi.cy - roi.side / 2) * s; }
   else { s = NET / Math.max(W, H); left = Math.floor((NET - W * s) / 2); top = Math.floor((NET - H * s) / 2); }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = "rgb(114,114,114)"; ctx.fillRect(0, 0, NET, NET);
-  ctx.drawImage(source, left, top, W * s, H * s);
+  ctx.setTransform(s, 0, 0, s, left, top);
+  if (rot && window.Frames) Frames.drawRotated(ctx, source, W, H, rot); else ctx.drawImage(source, 0, 0, W, H);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   return { cv, s, left, top };
 }
 // 追いかけている選手のまわりの正方形（動画の座標）。見失っているときは null（全体を見る）
@@ -402,59 +405,100 @@ async function runAnalysis() {
       track.prev = near ? [near.box[0], near.box[1]] : S.target.slice(); track.h = near ? near.box[3] : null; track.w = near ? near.box[2] : null;
     }
     const maxLost = Math.round(0.5 * fileFps / S.stride);
+    const track0 = { ...track };
     let started = performance.now(), fails = 0;
-    await seek(video, (ks[0] + 0.5) / fileFps);
-    for (let n = 0; n < ks.length; n++) {
+    const st = { infer: 0, frames: 0, method: "" };
+    const pause = async (n) => {
+      prog(0.1 + 0.85 * n / ks.length, "一時停止中：このアプリに戻ると続きから解析します");
+      started += await waitVisible();
+      try { wake = await navigator.wakeLock?.request("screen"); } catch (e) { /* なくてもよい */ }
+    };
+    // 1コマ分の骨格推定。src はそのコマの画像（null なら取り出せなかったコマ）。
+    // afterDraw はAI用の画像を描き終えた直後に呼ぶ（次のコマの読み込みを先に始めるため）。
+    // GPUを取り上げられたときは AIを作り直して、redo() でもう一度同じコマを用意してからやり直す
+    const step = async (n, src, rot, afterDraw, redo) => {
       if (S.cancel) throw new Error("cancel");
-      // 他のアプリに切り替えている間は止めて、戻ってきたら同じコマから続ける
-      if (document.hidden) {
-        prog(0.1 + 0.85 * n / ks.length, "一時停止中：このアプリに戻ると続きから解析します");
-        started += await waitVisible();
-        try { wake = await navigator.wakeLock?.request("screen"); } catch (e) { /* なくてもよい */ }
-        await seek(video, (ks[n] + 0.5) / fileFps);
-      }
-      let p = null, next = null;
-      try {
-        if (gpuLost()) throw new Error("GPUを取り上げられました");
-        // 今のコマをAI用の画像に描いてから、次のコマの読み込みを先に始める（AIの計算と同時に進む）
-        const roi = roiFor(track, S.W, S.H);
-        const gCrop = roi ? drawNet(lbCrop, video, S.W, S.H, roi) : null;
-        const gFull = drawNet(lbFull, video, S.W, S.H, null);
-        next = n + 1 < ks.length ? seek(video, (ks[n + 1] + 0.5) / fileFps) : null;
-        let persons = gCrop ? await runNet(model, gCrop) : [];
-        // 切り取った中に選手が見つからないときは、全体から探し直す
-        if (!gCrop || !persons.length || persons[0].conf < 0.4) persons = await runNet(model, gFull);
-        if (gpuLost()) throw new Error("GPUを取り上げられました");
-        p = trackPick(persons, track, maxLost);
-      } catch (err) {
-        // GPUを取り上げられたなど：AIを作り直して、同じコマをやり直す
-        if (S.cancel) throw new Error("cancel");
-        if (++fails > 5) throw err;
-        console.warn("AIを作り直します", err);
-        prog(0.1 + 0.85 * n / ks.length, "AIを準備し直しています…");
-        if (next) await next;
-        await waitVisible();
-        model = await recoverModel(kind);
-        await seek(video, (ks[n] + 0.5) / fileFps);
-        n--; continue;
+      if (!src) { S.KP.push(null); S.F.push({}); return; }
+      let p = null;
+      for (;;) {
+        let next = null;
+        try {
+          if (gpuLost()) throw new Error("GPUを取り上げられました");
+          const roi = roiFor(track, S.W, S.H);
+          const gCrop = roi ? drawNet(lbCrop, src, S.W, S.H, roi, rot) : null;
+          const gFull = drawNet(lbFull, src, S.W, S.H, null, rot);
+          next = afterDraw ? afterDraw() : null; afterDraw = null;
+          const t = performance.now();
+          let persons = gCrop ? await runNet(model, gCrop) : [];
+          // 切り取った中に選手が見つからないときは、全体から探し直す
+          if (!gCrop || !persons.length || persons[0].conf < 0.4) persons = await runNet(model, gFull);
+          st.infer += performance.now() - t; st.frames++;
+          if (gpuLost()) throw new Error("GPUを取り上げられました");
+          p = trackPick(persons, track, maxLost);
+          if (next) await next;
+          break;
+        } catch (err) {
+          if (S.cancel) throw new Error("cancel");
+          if (++fails > 5) throw err;
+          console.warn("AIを作り直します", err);
+          prog(0.1 + 0.85 * n / ks.length, "AIを準備し直しています…");
+          if (next) await next;
+          await waitVisible();
+          model = await recoverModel(kind);
+          if (redo) src = (await redo()) || src;
+        }
       }
       if (p) { S.KP.push({ xy: p.xy, cf: p.cf, box: p.box }); S.F.push(AN.frameFeatures(p.xy, p.cf, 0.5)); }
       else { S.KP.push(null); S.F.push({}); }
-      if (next) await next;
       if (n % 3 === 0 || n === ks.length - 1) {
         drawOverlay();
         const el = (performance.now() - started) / 1000, per = el / (n + 1), rest = per * (ks.length - n - 1);
         prog(0.1 + 0.85 * (n + 1) / ks.length, `骨格を推定中 ${n + 1} / ${ks.length} コマ（残り約${fmtRest(rest)}）`);
       }
+    };
+    // 速い方法：動画を頭から順番にデコードしてコマを取り出す（スマホで撮ったmp4/mov）
+    let usedFast = null, missing = 0;
+    if (window.Frames && !S.forceSeek) {
+      const k1x = ks[ks.length - 1] + 1;
+      usedFast = await Frames.run(S.file, {
+        fps: fileFps, k0: S.k0, k1: k1x, stride: S.stride,
+        isCancelled: () => S.cancel,
+        onFrame: async (k, frame, rot) => {
+          const n = (k - S.k0) / S.stride;
+          if (!frame) missing++;
+          if (document.hidden) await pause(n);
+          await step(n, frame, rot, null, null);
+        },
+      }).catch((e) => {
+        if (e.message === "cancel") throw e;
+        // 途中で失敗したら、最初から今まで通りの方法でやり直す
+        console.warn("WebCodecsで失敗したので今まで通りの方法にします", e);
+        S.KP = []; S.F = []; Object.assign(track, track0);
+        return null;
+      });
+      if (usedFast && missing > 0.3 * ks.length) { console.warn("取り出せないコマが多いのでやり直します", missing); S.KP = []; S.F = []; usedFast = null; Object.assign(track, track0); }
+      if (usedFast && S.KP.length !== ks.length) { console.warn("コマ数が合わないのでやり直します", S.KP.length, ks.length); S.KP = []; S.F = []; usedFast = null; Object.assign(track, track0); }
     }
-    S.perFrameMs = (performance.now() - started) / ks.length;
+    if (usedFast) st.method = "高速";
+    else {
+      // 今まで通りの方法：1コマずつ再生位置を移して取り出す
+      st.method = "互換"; started = performance.now();
+      await seek(video, (ks[0] + 0.5) / fileFps);
+      for (let n = 0; n < ks.length; n++) {
+        if (document.hidden) { await pause(n); await seek(video, (ks[n] + 0.5) / fileFps); }
+        await step(n, video, 0,
+          () => (n + 1 < ks.length ? seek(video, (ks[n + 1] + 0.5) / fileFps) : null),
+          async () => { await seek(video, (ks[n] + 0.5) / fileFps); return video; });
+      }
+    }
+    S.stats = { method: st.method, perFrame: (performance.now() - started) / ks.length, infer: st.frames ? st.infer / st.frames : 0, frames: ks.length };
     prog(0.96, "スイング・投球を探しています…");
     const A = AN.analyze(S.F, realFps / S.stride, mode, hand);
     S.A = A; S.dir = AN.targetDirection(S.F, A);
     S.events = A.events.map((e) => ({ ...e, summary: AN.summarizeEvent(S.F, A, e, S.dir), thumb: null, playerUid: $("playerSel").value, player: Store.nameOf($("playerSel").value) }));
     for (const ev of S.events) ev.thumb = await makeThumb(ev.main);
     S.selected = 0;
-    prog(1, `完了：${S.events.length}回見つかりました`);
+    prog(1, `完了：${S.events.length}回見つかりました（1コマあたり${(S.stats.perFrame / 1000).toFixed(2)}秒、うちAI ${(S.stats.infer / 1000).toFixed(2)}秒・${S.stats.method}）`);
     renderResults();
     if (S.events.length) await seek(video, Math.max(0, fileTimeOf(S.events[0].main) - 1.0 * secScale()));
   } catch (err) {
