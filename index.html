@@ -150,6 +150,8 @@ table.metrics td:first-child { font-family: var(--font-body); }
 .mark .num { font-size: 18px; font-weight: 700; }
 .rec { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .rec:last-child { border-bottom: 0; }
+.rec[data-open] { cursor: pointer; }
+.rec[data-open]:active { background: var(--turf-soft); }
 .rec img { width: 56px; height: 72px; object-fit: cover; border-radius: 6px; background: var(--stage); }
 .rec .speed-thumb { width: 56px; height: 56px; border-radius: 6px; display: grid; place-items: center; background: var(--turf-soft); color: var(--turf); font-family: var(--font-display); font-size: 15px; }
 .empty { display: grid; gap: 10px; justify-items: start; }
@@ -296,6 +298,7 @@ header.top .in { flex-wrap: wrap; row-gap: 6px; }
 
 <!-- ===================== 記録 ===================== -->
 <section id="tab-records" class="stack" hidden aria-label="記録">
+  <div class="card" id="recDetail" hidden></div>
   <div class="card">
     <div class="row">
       <label class="field grow">選手<select id="recPlayer"><option value="">全員</option></select></label>
@@ -308,6 +311,7 @@ header.top .in { flex-wrap: wrap; row-gap: 6px; }
   </div>
   <div class="card">
     <div class="row"><h2 class="grow">保存した記録</h2><span class="small muted" id="recCount"></span></div>
+    <p class="small muted" style="margin:0">打撃・投球の記録をタップすると、そのときの解析結果が見られます。</p>
     <div id="recList"></div>
   </div>
   <div class="card" id="rosterCard">

@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 const isNum = AN.isNum;
 const fmt = (v, d = 0) => (isNum(v) ? v.toFixed(d) : "—");
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const blobToB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.onerror = () => rej(r.error); r.readAsDataURL(blob); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -27,7 +28,7 @@ function showTab(name) {
   if (name === "compare") fillCompareOptions();
   window.scrollTo({ top: 0 });
 }
-document.querySelectorAll("nav.tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+document.querySelectorAll("nav.tabs button").forEach((b) => b.addEventListener("click", () => { if (b.dataset.tab === "records" && recDetailId) closeRecDetail(); showTab(b.dataset.tab); }));
 
 // ===================== チームの記録（Firebase・仮バージョン：全員で共有） =====================
 const Store = {
@@ -48,14 +49,27 @@ const Store = {
   onChange(fn) { this.listeners.push(fn); },
   emit() { this.listeners.forEach((f) => f()); },
   nameOf(uid) { const u = this.users.find((x) => x.uid === uid); return u ? u.name : ""; },
-  async add(col, doc) {
+  // clip（短い動画のBlob）があれば、先に動画を保存してから記録を保存する。動画だけ失敗したら記録だけ保存して false を返す
+  async add(col, doc, clip) {
     if (!doc.playerUid || !doc.player) throw Object.assign(new Error("no player"), { code: "no-player" });
     doc.kind = col === "swings" ? "swing" : "speed";
     doc.createdAt = new Date().toISOString();
     doc.createdBy = this.me.uid;
-    await FB.addRecord(doc);
+    if (!clip || !FB.addClip) { await FB.addRecord(doc); return true; }
+    const id = FB.newRecordId();
+    let n = 0;
+    try {
+      n = await FB.addClip(id, clip.type || "video/webm", await blobToB64(clip));
+      doc.clipN = n; doc.clipMime = clip.type || "video/webm"; doc.clipKB = Math.round(clip.size / 1024);
+    } catch (e) { console.warn("動画を保存できませんでした", e); if (n) await FB.deleteClips(id, n); n = 0; }
+    try { await FB.addRecord(doc, id); }
+    catch (e) { if (n) await FB.deleteClips(id, n); throw e; }
+    return n > 0;
   },
-  async remove(col, id) { await FB.deleteRecord(id); },
+  async remove(col, id) {
+    const d = [...this.data.swings, ...this.data.speeds].find((x) => x.id === id);
+    await FB.deleteRecord(id, (d && d.clipN) || 0);
+  },
 };
 function fillPlayerSelects() {
   const opts = Store.users.length ? Store.users.map((u) => `<option value="${esc(u.uid)}">${esc(u.name || "名前なし")}</option>`).join("") : `<option value="">（名簿が空です。「記録」画面で追加）</option>`;
@@ -592,7 +606,7 @@ function renderResults() {
         <button class="btn small" data-act="select" data-i="${i}">グラフ・再生</button>
         <button class="btn small" data-act="clip" data-i="${i}">動画で保存</button>
         <button class="btn small" data-act="save" data-i="${i}">記録に保存</button>
-        <button class="btn small ghost" data-act="drop" data-i="${i}">スイングではない</button>
+        <button class="btn small ghost" data-act="drop" data-i="${i}">${mode === "batting" ? "スイングではない" : "投球ではない"}</button>
       </div>
       <div class="sheet" id="sheet-${i}" hidden></div>
     </div>`).join("");
@@ -600,7 +614,7 @@ function renderResults() {
   box.innerHTML = `
     <div class="card">
       <div class="row"><h2 class="grow">${S.events.length}回 見つかりました</h2><span class="small muted">${mode === "batting" ? "打撃" : "投球"}・${S.A.hand === "right" ? "右" : "左"}</span></div>
-      <p class="small muted">素振りや構え直しが混ざることがあります。違うものは「スイングではない」で外してください。</p>
+      <p class="small muted">素振りや構え直しが混ざることがあります。違うものは「${mode === "batting" ? "スイングではない" : "投球ではない"}」で外してください。</p>
     </div>
     <div class="card" id="playerCard">
       <div class="row"><h2 class="grow" id="selTitle"></h2></div>
@@ -685,12 +699,30 @@ async function onEventAction(act, i) {
           <label class="field">日付<input type="date" id="svD-${i}" value="${todayStr()}"></label>
         </div>
         <label class="field">メモ<input type="text" id="svM-${i}" placeholder="例：フリー打撃、好調時" autocomplete="off"></label>
-        <button class="btn red" id="svB-${i}">保存する</button>`;
+        <div class="row"><label class="row small"><input type="checkbox" id="svV-${i}" ${typeof MediaRecorder === "undefined" ? "disabled" : "checked"}> 短い動画も保存（約2.5秒・0.3MBほど）</label>
+        <label class="row small"><input type="checkbox" id="svVS-${i}" checked> 動画に骨格を重ねる</label></div>
+        <button class="btn red" id="svB-${i}">保存する</button>
+        <span class="small muted" id="svMsg-${i}"></span>`;
       $("svB-" + i).addEventListener("click", async () => {
         const uid = $("svP-" + i).value;
         const doc = buildSwingDoc(ev, uid, Store.nameOf(uid), $("svD-" + i).value || todayStr(), $("svM-" + i).value.trim());
-        try { await Store.add("swings", doc); sh.hidden = true; toast("記録に保存しました"); }
+        if (!doc.playerUid) { toast("先に「記録」画面の名簿に選手を追加して、選んでください"); return; }
+        const btn = $("svB-" + i), msg = $("svMsg-" + i); btn.disabled = true;
+        try {
+          let clip = null;
+          if ($("svV-" + i).checked) {
+            msg.textContent = "短い動画を作っています…（動画が再生されます）";
+            try { clip = (await recordClip(ev, 1, $("svVS-" + i).checked, { maxW: 640, bps: 8e5, maxBytes: 1.6e6 })).blob; }
+            catch (e) { console.warn(e); clip = null; }
+            if (clip && clip.size > 2.0e6) clip = null;
+          }
+          msg.textContent = "保存しています…";
+          const okClip = await Store.add("swings", doc, clip);
+          sh.hidden = true;
+          toast(clip && !okClip ? "記録は保存しました（動画は保存できませんでした）" : clip ? "動画つきで記録に保存しました" : "記録に保存しました");
+        }
         catch (e) { console.error(e); toast(e && e.code === "no-player" ? "先に「記録」画面の名簿に選手を追加して、選んでください" : "保存できませんでした。通信状態を確認してください"); }
+        finally { btn.disabled = false; msg.textContent = ""; }
       });
     }
   } else if (act === "clip") {
@@ -724,22 +756,30 @@ async function onEventAction(act, i) {
 const L_main = () => (S.A && S.A.mode === "pitching" ? "リリース" : "インパクト");
 
 // ===================== 切り出し動画 =====================
-async function recordClip(ev, rate, withSkeleton) {
+async function recordClip(ev, rate, withSkeleton, opt = {}) {
   if (typeof MediaRecorder === "undefined") throw new Error("このブラウザでは動画を作れません");
   const tMain = fileTimeOf(ev.main), start = Math.max(0, tMain - 1.5 * secScale()), end = Math.min(S.duration, tMain + 1.0 * secScale());
-  const maxW = 1280, sc = Math.min(1, maxW / Math.max(S.W, S.H));
+  const maxW = opt.maxW || 1280, sc = Math.min(1, maxW / Math.max(S.W, S.H));
+  // 容量の上限があるときは、長さに合わせて画質（ビットレート）を下げる
+  const bps = opt.maxBytes ? Math.max(2e5, Math.min(opt.bps || 8e5, (opt.maxBytes * 8 * 0.85) / ((end - start) / rate + 0.5))) : (opt.bps || 6e6);
   const cv = document.createElement("canvas"); cv.width = Math.round(S.W * sc / 2) * 2; cv.height = Math.round(S.H * sc / 2) * 2;
   const ctx = cv.getContext("2d");
   const types = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
   const mime = types.find((t) => MediaRecorder.isTypeSupported(t)) || "";
   const stream = cv.captureStream(30);
-  const rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 6e6 } : undefined);
+  const rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: bps } : { videoBitsPerSecond: bps });
   const chunks = []; rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
   const draw = () => {
     ctx.drawImage(video, 0, 0, cv.width, cv.height);
     const j = frameIndexAt(video.currentTime);
     if (withSkeleton && j >= 0 && S.KP[j]) drawSkeleton(ctx, S.KP[j].xy, S.KP[j].cf, (p) => [p[0] * sc, p[1] * sc], "#ffd23f", Math.max(2, 4 * sc));
   };
+  // 動画が画面の外にあると、ブラウザがコマを作らなくなって録画が途切れるので、作っている間は動画を画面に出す
+  const backY = window.scrollY;
+  const r0 = video.getBoundingClientRect();
+  if (r0.bottom < 40 || r0.top > window.innerHeight - 40) { video.scrollIntoView({ block: "center" }); await sleep(300); }
+  // 別の再生位置の移動が終わっていないと、録画がすぐ止まってしまうので待つ
+  for (let k = 0; k < 20 && video.seeking; k++) await sleep(100);
   await seek(video, start); draw();
   const stopped = new Promise((res) => { rec.onstop = res; });
   rec.start(250);
@@ -747,13 +787,15 @@ async function recordClip(ev, rate, withSkeleton) {
   await new Promise((res) => {
     let done = false;
     const tick = () => { if (done) return; draw(); if (video.currentTime >= end || video.ended) { done = true; video.pause(); res(); return; } schedule(); };
-    const schedule = () => ("requestVideoFrameCallback" in HTMLVideoElement.prototype ? video.requestVideoFrameCallback(tick) : requestAnimationFrame(tick));
+    // 動画が画面の外にあると、コマごとの通知（requestVideoFrameCallback）がほとんど来ないので、画面の更新ごとに描く
+    const schedule = () => requestAnimationFrame(tick);
     schedule();
     video.play().catch(() => { done = true; res(); });
     setTimeout(() => { if (!done) { done = true; video.pause(); res(); } }, ((end - start) / rate + 5) * 1000);
   });
   draw(); await sleep(200); rec.stop(); await stopped;
   video.playbackRate = 1;
+  if (Math.abs(window.scrollY - backY) > 2) window.scrollTo({ top: backY });
   const type = rec.mimeType || mime || "video/webm";
   return { blob: new Blob(chunks, { type }), ext: type.includes("mp4") ? "mp4" : "webm" };
 }
@@ -862,35 +904,42 @@ function renderCompare(a, b) {
   drawChart($("cmpKnee"), { series: [ser(a, "lead_knee", css("--c1")), ser(b, "lead_knee", css("--c2"))], ymin: 90, ymax: 185, markers: mk, xlabel: `${mainA}からの時間（秒）` });
   if (sameMode) for (const k of keys.filter((k) => k !== "lead_knee")) drawChart($("cmpC-" + k), { series: [ser(a, k, css("--c1")), ser(b, k, css("--c2"))], ymin: 20, ymax: 185, markers: mk, xlabel: `${mainA}からの時間（秒）` });
   drawChart($("cmpHead"), { series: [ser(a, "head", css("--c1")), ser(b, "head", css("--c2"))], markers: mk, xlabel: `${mainA}からの時間（秒）`, pad: 0.1 });
-  // 骨格アニメーション
-  const tA = a.series?.t || [], tB = b.series?.t || [];
-  const tmin = Math.max(Math.min(...tA), Math.min(...tB)), tmax = Math.min(Math.max(...tA), Math.max(...tB));
+  setupSkelPlayer({ canvas: "cmpCanvas", play: "cmpPlay", seek: "cmpSeek", t: "cmpT" }, [[a, css("--c1")], [b, css("--c2")]], mainA);
+}
+// 記録の骨格を動かして見せる（比較・記録の詳しい画面で使う）。docs は [記録, 色] の並び
+let skelAnim = null;
+function setupSkelPlayer(ids, docs, mainLabel) {
+  if (skelAnim) cancelAnimationFrame(skelAnim);
+  if (cmpAnim) cancelAnimationFrame(cmpAnim);
+  const ts = docs.map(([d]) => d.series?.t || []).filter((t) => t.length);
+  if (!ts.length) return;
+  const tmin = Math.max(...ts.map((t) => Math.min(...t))), tmax = Math.min(...ts.map((t) => Math.max(...t)));
   let cur = tmin, playing = false, last = 0;
-  const near = (ts, t) => { let bi = 0; for (let i = 0; i < ts.length; i++) if (Math.abs(ts[i] - t) < Math.abs(ts[bi] - t)) bi = i; return bi; };
+  const near = (tt, t) => { let bi = 0; for (let i = 0; i < tt.length; i++) if (Math.abs(tt[i] - t) < Math.abs(tt[bi] - t)) bi = i; return bi; };
   const drawFrame = () => {
-    const cv = $("cmpCanvas"); if (!cv) return;
+    const cv = $(ids.canvas); if (!cv || !cv.isConnected) { playing = false; return; }
     const { w, h, dpr } = sizeCanvas(cv); const ctx = cv.getContext("2d");
     ctx.fillStyle = css("--stage"); ctx.fillRect(0, 0, w, h);
     const sc = h / 5, ox = w * 0.4, oy = h * 0.45;
     ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1 * dpr; ctx.beginPath(); ctx.moveTo(0, oy); ctx.lineTo(w, oy); ctx.moveTo(ox, 0); ctx.lineTo(ox, h); ctx.stroke();
-    for (const [d, color] of [[a, css("--c1")], [b, css("--c2")]]) {
-      const fr = d.skel && d.skel[near(d.series.t, cur)]; if (!fr) continue;
+    for (const [d, color] of docs) {
+      const fr = d.skel && d.series?.t && d.skel[near(d.series.t, cur)]; if (!fr) continue;
       const xy = [], cf = []; for (let p = 0; p < 17; p++) { xy.push([fr[3 * p], fr[3 * p + 1]]); cf.push(fr[3 * p + 2]); }
       drawSkeleton(ctx, xy, cf, (p) => [ox + p[0] * sc, oy + p[1] * sc], color, 3.5 * dpr);
     }
     ctx.fillStyle = "#ffffff"; ctx.font = `700 ${13 * dpr}px ${css("--font-mono")}`;
     ctx.fillText(`${cur >= 0 ? "+" : ""}${cur.toFixed(2)}s`, 10 * dpr, 20 * dpr);
-    $("cmpT").textContent = Math.abs(cur) < 0.02 ? mainA : `${cur >= 0 ? "+" : ""}${cur.toFixed(2)}秒`;
-    $("cmpSeek").value = String(Math.round((cur - tmin) / (tmax - tmin || 1) * 1000));
+    $(ids.t).textContent = Math.abs(cur) < 0.02 ? mainLabel : `${cur >= 0 ? "+" : ""}${cur.toFixed(2)}秒`;
+    $(ids.seek).value = String(Math.round((cur - tmin) / (tmax - tmin || 1) * 1000));
   };
-  const loop = (ts) => {
+  const loop = (t) => {
     if (!playing) return;
-    const dt = last ? (ts - last) / 1000 : 0; last = ts; cur += dt * 0.25;
+    const dt = last ? (t - last) / 1000 : 0; last = t; cur += dt * 0.25;
     if (cur > tmax) cur = tmin;
-    drawFrame(); cmpAnim = requestAnimationFrame(loop);
+    drawFrame(); skelAnim = requestAnimationFrame(loop);
   };
-  $("cmpPlay").addEventListener("click", () => { playing = !playing; $("cmpPlay").textContent = playing ? "止める" : "再生"; last = 0; if (playing) cmpAnim = requestAnimationFrame(loop); });
-  $("cmpSeek").addEventListener("input", (e) => { playing = false; $("cmpPlay").textContent = "再生"; cur = tmin + (+e.target.value / 1000) * (tmax - tmin); drawFrame(); });
+  $(ids.play).addEventListener("click", () => { playing = !playing; $(ids.play).textContent = playing ? "止める" : "再生"; last = 0; if (playing) skelAnim = requestAnimationFrame(loop); });
+  $(ids.seek).addEventListener("input", (e) => { playing = false; $(ids.play).textContent = "再生"; cur = tmin + (+e.target.value / 1000) * (tmax - tmin); drawFrame(); });
   cur = 0 >= tmin && 0 <= tmax ? 0 : tmin; drawFrame();
 }
 
@@ -926,8 +975,13 @@ function renderRecords() {
     const head = `<b>${esc(d.player || "名前なし")}</b> <span class="small muted">${esc(d.date || "")}</span>`;
     if (d.kind === "speeds") return `<div class="rec"><div class="speed-thumb">${fmt(d.kmh)}</div><div class="stack" style="gap:2px;min-width:0">${head}<span class="small">球速 ${fmt(d.kmh, 1)} km/h（${fmt(d.frames)}コマ・${fmt(d.fps)}fps）${d.memo ? "・" + esc(d.memo) : ""}</span></div><button class="btn small ghost" data-del="${d.kind}:${esc(d.id)}">${pendingDelete.has(d.id) ? "本当に消す" : "消す"}</button></div>`;
     const m = d.mode === "pitching" ? "リリース" : "インパクト";
-    return `<div class="rec">${d.thumb ? `<img src="${d.thumb}" alt="">` : `<div class="speed-thumb">${d.mode === "pitching" ? "投" : "打"}</div>`}<div class="stack" style="gap:2px;min-width:0">${head}<span class="small">${d.mode === "batting" ? "打撃" : "投球"}・${d.hand === "right" ? "右" : "左"}${d.memo ? "・" + esc(d.memo) : ""}</span><span class="small muted mono">膝の伸び ${isNum(d.kneeExtension) ? (d.kneeExtension > 0 ? "+" : "") + d.kneeExtension + "°" : "—"} ／ 着地→${m} ${fmt(d.plantToMain, 2)}秒</span></div><button class="btn small ghost" data-del="${d.kind}:${esc(d.id)}">${pendingDelete.has(d.id) ? "本当に消す" : "消す"}</button></div>`;
+    return `<div class="rec" data-open="${esc(d.id)}" role="button" tabindex="0" aria-label="${esc(d.player || "")}の解析結果を見る">${d.thumb ? `<img src="${d.thumb}" alt="">` : `<div class="speed-thumb">${d.mode === "pitching" ? "投" : "打"}</div>`}<div class="stack" style="gap:2px;min-width:0">${head}<span class="small">${d.mode === "batting" ? "打撃" : "投球"}・${d.hand === "right" ? "右" : "左"}${d.memo ? "・" + esc(d.memo) : ""}${d.clipN ? "・動画あり" : ""}</span><span class="small muted mono">膝の伸び ${isNum(d.kneeExtension) ? (d.kneeExtension > 0 ? "+" : "") + d.kneeExtension + "°" : "—"} ／ 着地→${m} ${fmt(d.plantToMain, 2)}秒</span></div><button class="btn small ghost" data-del="${d.kind}:${esc(d.id)}">${pendingDelete.has(d.id) ? "本当に消す" : "消す"}</button></div>`;
   }).join("") : `<div class="empty"><p class="small muted">まだ記録がありません。「解析」の結果で「記録に保存」を押すか、「球速」で測った値を保存すると、ここにたまっていきます。</p></div>`;
+  $("recList").querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", (e) => {
+    if (e.target.closest("[data-del]")) return;
+    const d = Store.data.swings.find((x) => x.id === el.dataset.open);
+    if (d) openRecDetail(d);
+  }));
   $("recList").querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
     const [kind, id] = b.dataset.del.split(":");
     if (!pendingDelete.has(id)) { pendingDelete.add(id); renderRecords(); setTimeout(() => { pendingDelete.delete(id); renderRecords(); }, 4000); return; }
@@ -941,7 +995,100 @@ function renderRecords() {
   $("recChartTitle").textContent = `${met.name}の推移${pf ? "（" + nm(pf) + "）" : Store.isStaff() ? "（全員）" : ""}`;
   drawChart($("recChart"), { series: [{ color: css("--c1"), pts: pts.map((x, i) => [i, x.v]), dots: true, name: met.name }], xticks: pts.map((x, i) => [i, x.d.slice(5).replace("-", "/")]), pad: 0.15, empty: "記録が2件以上たまると推移が表示されます", minPoints: 2 });
 }
-Store.onChange(() => { renderRecords(); fillCompareOptions(); });
+// 保存した記録1件の解析結果（解析した直後の画面とほぼ同じもの）
+let recDetailId = null;
+function closeRecDetail() {
+  recDetailId = null;
+  if (skelAnim) cancelAnimationFrame(skelAnim);
+  $("recDetail").hidden = true; $("recDetail").innerHTML = "";
+  if (rdClipUrl) { URL.revokeObjectURL(rdClipUrl); rdClipUrl = null; }
+  document.querySelectorAll("#tab-records > .card:not(#recDetail)").forEach((c) => { c.hidden = false; });
+  renderRecords();
+}
+function openRecDetail(d) {
+  recDetailId = d.id;
+  const mode = d.mode === "pitching" ? "pitching" : "batting", L = LABELS[mode];
+  const sum = { kneeExtension: d.kneeExtension, plantToMain: d.plantToMain, stride: d.stride, headForward: d.headForward, footPlantTime: d.footPlantT, flags: d.flags || [], values: d.values || {} };
+  document.querySelectorAll("#tab-records > .card:not(#recDetail)").forEach((c) => { c.hidden = true; });
+  const box = $("recDetail"); box.hidden = false;
+  const elbowKeys = Object.keys(d.values || {}).filter((k) => k !== "lead_knee");
+  box.innerHTML = `
+    <div class="row"><button class="btn small ghost" id="rdBack" type="button">← 記録の一覧に戻る</button></div>
+    <div class="row"><h2 class="grow">${esc(d.player || "名前なし")}</h2><span class="small muted">${esc(d.date || "")}</span></div>
+    <p class="small muted" style="margin:0">${mode === "batting" ? "打撃" : "投球"}・${d.hand === "right" ? "右" : "左"}${d.memo ? "・" + esc(d.memo) : ""}${d.source ? "・" + esc(d.source) : ""}</p>
+    <div class="${d.thumb ? "ev" : "stack"}">
+      ${d.thumb ? `<img src="${d.thumb}" alt="${L.main}の瞬間">` : ""}
+      <div class="stack" style="gap:8px;min-width:0">
+        ${summaryChips(sum, mode)}
+        ${metricsTable(sum, mode)}
+      </div>
+    </div>
+    ${d.clipN ? `
+    <div>
+      <div class="chart-title">動画</div>
+      <div class="stage" style="aspect-ratio:auto;min-height:120px"><video id="rdVideo" playsinline muted loop controls style="width:100%;display:block"></video></div>
+      <div class="row"><span class="small muted grow" id="rdVMsg">動画を読み込んでいます…</span>
+        <button class="btn small" data-rdrate="0.25">0.25倍</button><button class="btn small" data-rdrate="0.5">0.5倍</button><button class="btn small" data-rdrate="1">等倍</button></div>
+    </div>` : ""}
+    ${d.skel && d.skel.length ? `
+    <div>
+      <div class="chart-title">骨格の動き（${L.main}＝0秒）</div>
+      <div class="stage" style="aspect-ratio:4/3"><canvas id="rdCanvas"></canvas></div>
+      <div class="row"><button class="btn small" id="rdPlay">再生</button><input type="range" id="rdSeek" min="0" max="1000" value="0" class="grow" aria-label="時間"><span class="mono small" id="rdT"></span></div>
+    </div>` : ""}
+    <div><div class="chart-title">前足の膝（°）</div><canvas class="chart" id="rdKnee"></canvas></div>
+    ${elbowKeys.length ? `<div><div class="chart-title">肘（°）</div><div class="legend" id="rdLgElbow"></div><canvas class="chart" id="rdElbow"></canvas></div>` : ""}
+    <div><div class="chart-title">${mode === "batting" ? "投手" : "捕手"}方向への移動（胴の長さ＝1）</div><div class="legend" id="rdLgMove"></div><canvas class="chart" id="rdMove"></canvas></div>
+    <div class="controls"><button class="btn small" id="rdCmp" type="button">この記録を比較する</button></div>`;
+  $("rdBack").addEventListener("click", closeRecDetail);
+  $("rdCmp").addEventListener("click", () => {
+    showTab("compare"); fillCompareOptions();
+    if ([...$("cmpA").options].some((o) => o.value === "r" + d.id)) $("cmpA").value = "r" + d.id;
+    if ($("cmpB").value === $("cmpA").value && $("cmpB").options.length > 1) $("cmpB").selectedIndex = $("cmpA").selectedIndex === 0 ? 1 : 0;
+  });
+  const t = d.series?.t || [];
+  const pts = (k) => t.map((x, i) => [x, d.series[k] ? d.series[k][i] : null]).filter((p) => isNum(p[1]));
+  const markers = [{ x: 0, label: L.main, dash: [5, 4], side: "right" }];
+  if (isNum(d.footPlantT)) markers.push({ x: d.footPlantT, label: "着地", dash: [2, 3], side: "left" });
+  const xl = `${L.main}からの時間（秒）`;
+  drawChart($("rdKnee"), { series: [{ color: css("--c1"), pts: pts("lead_knee"), name: "前足の膝" }], ymin: 90, ymax: 185, markers, xlabel: xl });
+  if (elbowKeys.length) {
+    const es = elbowKeys.map((k, i) => ({ color: css(i ? "--c2" : "--c1"), pts: pts(k), name: L[k] }));
+    setLegend("rdLgElbow", es);
+    drawChart($("rdElbow"), { series: es, ymin: 20, ymax: 185, markers, xlabel: xl });
+  }
+  const ms = [{ color: css("--c1"), pts: pts("head"), name: "頭" }, { color: css("--c2"), pts: pts("hip"), name: "腰" }];
+  setLegend("rdLgMove", ms);
+  drawChart($("rdMove"), { series: ms, markers, xlabel: xl, pad: 0.1 });
+  if (d.skel && d.skel.length) setupSkelPlayer({ canvas: "rdCanvas", play: "rdPlay", seek: "rdSeek", t: "rdT" }, [[d, css("--c1")]], L.main);
+  if (d.clipN) loadRecClip(d);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+// 記録に付けた短い動画を読み込んで再生する
+let rdClipUrl = null;
+async function loadRecClip(d) {
+  const v = $("rdVideo"), msg = $("rdVMsg");
+  document.querySelectorAll("[data-rdrate]").forEach((b) => b.addEventListener("click", () => { v.playbackRate = +b.dataset.rdrate; v.play().catch(() => {}); }));
+  try {
+    const c = await FB.getClip(d.id, d.clipN);
+    if (recDetailId !== d.id) return;
+    if (!c) { msg.textContent = "動画が見つかりませんでした"; return; }
+    const bin = atob(c.data), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: c.mime });
+    if (rdClipUrl) URL.revokeObjectURL(rdClipUrl);
+    rdClipUrl = URL.createObjectURL(blob);
+    v.src = rdClipUrl; v.playbackRate = 0.5;
+    v.play().catch(() => {});
+    msg.textContent = `${d.clipKB ? d.clipKB + "KB・" : ""}${L_mainOf(d)}の1.5秒前から1秒後`;
+  } catch (e) { console.warn(e); msg.textContent = "動画を読み込めませんでした。通信状態を確認してください"; }
+}
+const L_mainOf = (d) => (d.mode === "pitching" ? "リリース" : "インパクト");
+Store.onChange(() => {
+  // 開いている記録が消されたら一覧に戻る
+  if (recDetailId && !Store.data.swings.some((x) => x.id === recDetailId)) closeRecDetail();
+  renderRecords(); fillCompareOptions();
+});
 
 // ===================== 球速 =====================
 const SP = { fileFps: 30, rel: null, catch: null, url: null };
