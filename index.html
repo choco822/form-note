@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#16202b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="解析ノート">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>フォーム解析ノート</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=JetBrains+Mono:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>
+/* レイアウト：スコアブックの方眼をうっすら敷いた1カラム。下にタブ、上に見出し。カードは「記録用紙」1枚ずつ */
+:root {
+  --bg: #eff2ec;
+  --grid: rgba(22, 32, 43, 0.045);
+  --surface: #ffffff;
+  --surface-2: #f6f8f4;
+  --ink: #16202b;
+  --muted: #5b6863;
+  --line: #d6ddd3;
+  --accent: #c33a2e;
+  --accent-ink: #ffffff;
+  --turf: #2e6a4e;
+  --turf-soft: #e1ede5;
+  --warn-bg: #fdf1dc;
+  --warn-ink: #7a4b00;
+  --c1: #2a78d6;
+  --c2: #eb6834;
+  --c3: #1baf7a;
+  --stage: #0e1418;
+  --font-display: "Dela Gothic One", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius: 10px;
+  --nav-h: 64px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1519; --grid: rgba(232, 237, 233, 0.04); --surface: #172027; --surface-2: #1c262e; --ink: #e7ece8; --muted: #94a29c;
+    --line: #2b373e; --accent: #e5594c; --accent-ink: #ffffff; --turf: #5aa882; --turf-soft: #1d3329; --warn-bg: #3a2c12; --warn-ink: #f2c46d;
+    --c1: #3987e5; --c2: #d95926; --c3: #199e70; --stage: #070a0c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1519; --grid: rgba(232, 237, 233, 0.04); --surface: #172027; --surface-2: #1c262e; --ink: #e7ece8; --muted: #94a29c;
+  --line: #2b373e; --accent: #e5594c; --accent-ink: #ffffff; --turf: #5aa882; --turf-soft: #1d3329; --warn-bg: #3a2c12; --warn-ink: #f2c46d;
+  --c1: #3987e5; --c2: #d95926; --c3: #199e70; --stage: #070a0c; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body {
+  background-color: var(--bg);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 22px 22px;
+  color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 24px);
+  -webkit-text-size-adjust: 100%;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
+.wrap { max-width: 720px; margin: 0 auto; display: grid; gap: 16px; }
+.stack { display: grid; gap: 16px; min-width: 0; }
+header.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg);
+  margin: 0 calc(-1 * max(16px, env(safe-area-inset-left, 0px))); padding: 12px max(16px, env(safe-area-inset-left, 0px)) 10px;
+  border-bottom: 1px solid var(--line);
+}
+header.top .in { max-width: 720px; margin: 0 auto; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+h1 { font-family: var(--font-display); font-weight: 400; font-size: 20px; letter-spacing: 0.02em; margin: 0; line-height: 1.2; }
+h1 small { display: block; font-family: var(--font-body); font-size: 11px; letter-spacing: 0.12em; color: var(--muted); font-weight: 500; }
+.store-badge { font-size: 11px; color: var(--muted); white-space: nowrap; }
+h2 { font-size: 17px; margin: 0; font-weight: 700; text-wrap: balance; }
+h3 { font-size: 14px; margin: 0; font-weight: 700; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.mono, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.eyebrow { font-size: 11px; letter-spacing: 0.14em; color: var(--turf); font-weight: 700; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.grow { flex: 1 1 auto; min-width: 0; }
+label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 500; min-width: 0; }
+input[type="text"], input[type="number"], input[type="date"], select {
+  font: inherit; font-size: 16px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; width: 100%; min-width: 0;
+}
+input:focus-visible, select:focus-visible, button:focus-visible, .seg label:focus-within { outline: 2px solid var(--c1); outline-offset: 2px; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+button { font: inherit; cursor: pointer; }
+.btn {
+  appearance: none; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px;
+  padding: 9px 14px; font-size: 14px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px;
+}
+.btn.primary { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.btn.red { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { background: transparent; }
+.btn.small { padding: 6px 11px; min-height: 34px; font-size: 13px; }
+.btn.block { width: 100%; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg label { position: relative; }
+.seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg span { display: block; padding: 6px 13px; border-radius: 999px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.seg input:checked + span { background: var(--ink); color: var(--surface); }
+.file-drop {
+  border: 1.5px dashed var(--line); border-radius: var(--radius); padding: 18px; display: grid; gap: 6px; justify-items: center; text-align: center;
+  background: var(--surface-2); position: relative;
+}
+.file-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.file-drop strong { font-size: 15px; }
+.stage { position: relative; background: var(--stage); border-radius: 8px; overflow: hidden; width: 100%; aspect-ratio: 16 / 9; max-width: 100%; touch-action: manipulation; }
+.stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.stage .hint { position: absolute; left: 8px; bottom: 8px; right: 8px; color: #fff; font-size: 12px; background: rgba(0, 0, 0, 0.55); padding: 6px 9px; border-radius: 6px; pointer-events: none; }
+.progress { height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--line); }
+.progress > i { display: block; height: 100%; width: 0%; background: var(--turf); transition: width 0.2s; }
+.note { font-size: 13px; background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 9px 11px; }
+.note.info { background: var(--turf-soft); color: var(--ink); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); }
+.chip.flag { background: var(--warn-bg); color: var(--warn-ink); border-color: transparent; }
+.chip.turf { background: var(--turf-soft); color: var(--turf); border-color: transparent; }
+.ev { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; align-items: start; }
+.ev img { width: 112px; height: 150px; object-fit: cover; border-radius: 8px; background: var(--stage); display: block; }
+.ev-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.ev-time { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+table.metrics { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.metrics th, table.metrics td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+table.metrics th:first-child, table.metrics td:first-child { text-align: left; white-space: normal; }
+table.metrics thead th { font-size: 11px; color: var(--muted); font-weight: 500; letter-spacing: 0.04em; }
+table.metrics td { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+table.metrics td:first-child { font-family: var(--font-body); }
+.tablewrap { overflow-x: auto; }
+.chart { width: 100%; height: 190px; display: block; }
+.chart-title { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.04em; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.big-speed { font-family: var(--font-display); font-size: 54px; line-height: 1; letter-spacing: 0.01em; }
+.big-speed small { font-family: var(--font-body); font-size: 16px; font-weight: 700; margin-left: 4px; }
+.marks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mark { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--surface-2); }
+.mark b { display: block; font-size: 12px; color: var(--muted); font-weight: 500; }
+.mark .num { font-size: 18px; font-weight: 700; }
+.rec { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.rec:last-child { border-bottom: 0; }
+.rec img { width: 56px; height: 72px; object-fit: cover; border-radius: 6px; background: var(--stage); }
+.rec .speed-thumb { width: 56px; height: 56px; border-radius: 6px; display: grid; place-items: center; background: var(--turf-soft); color: var(--turf); font-family: var(--font-display); font-size: 15px; }
+.empty { display: grid; gap: 10px; justify-items: start; }
+.steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: s; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 14px; }
+.steps li::before { content: counter(s); width: 24px; height: 24px; border-radius: 50%; background: var(--ink); color: var(--surface); font-size: 12px; font-weight: 700; display: grid; place-items: center; font-family: var(--font-mono); }
+.sheet { border-top: 1px dashed var(--line); padding-top: 12px; display: grid; gap: 10px; }
+nav.tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; background: var(--surface); border-top: 1px solid var(--line);
+  padding: 6px max(8px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+}
+nav.tabs .in { max-width: 720px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+nav.tabs button {
+  appearance: none; border: 0; background: transparent; color: var(--muted); display: grid; justify-items: center; gap: 2px;
+  font-size: 11px; font-weight: 700; padding: 6px 2px; border-radius: 10px; min-height: 50px;
+}
+nav.tabs button svg { width: 22px; height: 22px; }
+nav.tabs button[aria-selected="true"] { color: var(--ink); background: var(--surface-2); }
+nav.tabs button[aria-selected="true"] svg { color: var(--accent); }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 16px); background: var(--ink); color: var(--surface); padding: 9px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; z-index: 40; max-width: calc(100% - 32px); }
+input[type="range"] { width: 100%; accent-color: var(--turf); }
+@media (max-width: 420px) {
+  .grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ev { grid-template-columns: 88px minmax(0, 1fr); }
+  .ev img { width: 88px; height: 118px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+html { -webkit-tap-highlight-color: transparent; }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+:root { padding-top: env(safe-area-inset-top, 0px); }
+header.top .in { flex-wrap: wrap; row-gap: 6px; }
+.me { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); min-width: 0; margin-left: auto; }
+.me .chip, .me .btn { white-space: nowrap; }
+.me b { color: var(--ink); max-width: 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth { max-width: 420px; margin: 24px auto; }
+.auth .tabsw { display: flex; gap: 6px; }
+.cam { position: fixed; inset: 0; z-index: 50; background: #000; display: grid; grid-template-rows: 1fr auto; }
+.cam video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.cam .bar { display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap;
+  padding: 14px max(16px, env(safe-area-inset-right, 0px)) calc(14px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); background: rgba(0,0,0,0.85); color: #fff; }
+.cam .rec { width: 72px; height: 72px; border-radius: 50%; border: 4px solid #fff; background: #e5594c; }
+.cam .rec.on { border-radius: 18px; transform: scale(0.8); }
+.cam .info { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; color: #fff; font-size: 13px; background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 8px; }
+.member { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.member:last-child { border-bottom: 0; }
+</style>
+</head>
+<body>
+
+
+<header class="top"><div class="in">
+  <h1><small>DATA STAFF TOOL</small>フォーム解析ノート</h1>
+  <div class="me" id="meBox" hidden><span class="chip turf">チーム共有（仮バージョン）</span></div>
+</div></header>
+
+
+<section id="setupView" class="card auth" hidden>
+  <h2>Firebaseの設定がまだです</h2>
+  <p class="small muted">config.js にFirebaseの設定を貼り付けてから、もう一度開いてください。手順書の「3. アプリとFirebaseをつなぐ」を見てください。</p>
+</section>
+<section id="connectView" class="card auth" aria-label="接続中"><p class="small muted" id="connectMsg">チームの記録につないでいます…</p></section>
+<main class="wrap" id="appMain" hidden style="padding-top:16px">
+
+<!-- ===================== 解析 ===================== -->
+<section id="tab-analyze" class="stack" aria-label="解析">
+  <div class="card" id="emptyAnalyze">
+    <div class="empty">
+      <h2>動画から、角度と大事な瞬間を自動で取り出します</h2>
+      <ol class="steps">
+        <li>打撃や投球の動画を選ぶ（横から、全身が入っているもの）</li>
+        <li>打撃か投球か、右か左かを選んで「解析する」</li>
+        <li>スイング・投球が1回ずつ見つかります。着地とインパクト（リリース）の瞬間の角度、膝の伸び、頭の移動が表になります</li>
+        <li>気になる1回は、スロー再生・動画で保存・記録に保存ができます</li>
+      </ol>
+      <p class="small muted">10秒の動画で、スマホなら1〜2分ほどかかります。最初の1回だけ、AIの読み込み（約20MB）があります。</p>
+    </div>
+  </div>
+  <div class="card">
+    <div class="eyebrow">STEP 1　動画を選ぶ</div>
+    <div class="pick">
+      <div class="file-drop">
+        <input type="file" id="camInput" accept="video/*" capture="environment" aria-label="カメラで撮影する">
+        <strong>撮影する</strong>
+        <span class="small muted">カメラが開きます</span>
+      </div>
+      <div class="file-drop">
+        <input type="file" id="fileInput" accept="video/*" aria-label="解析する動画を選ぶ">
+        <strong>動画を選ぶ</strong>
+        <span class="small muted">カメラロールから</span>
+      </div>
+    </div>
+    <button class="btn block" id="camOpenA" type="button">アプリ内カメラで撮る</button>
+    <p class="small muted">動画はスマホの中だけで処理します。スローで撮りたいときは、カメラアプリのスローモーションで撮ってから「動画を選ぶ」で選んでください。</p>
+    <div id="previewBox" hidden class="stack" style="gap:10px">
+      <div class="stage" id="stage">
+        <video id="video" playsinline muted preload="auto"></video>
+        <canvas id="overlay"></canvas>
+        <div class="hint" id="stageHint">追いかける選手をタップ（タップしなければ一番大きく映っている人）</div>
+      </div>
+      <p class="small muted" id="videoInfo"></p>
+    </div>
+  </div>
+
+  <div class="card" id="settingsCard">
+    <div class="eyebrow">STEP 2　設定</div>
+    <div class="row">
+      <div class="seg" role="radiogroup" aria-label="種類">
+        <label><input type="radio" name="mode" value="batting" id="modeBat" checked><span>打撃</span></label>
+        <label><input type="radio" name="mode" value="pitching" id="modePitch"><span>投球</span></label>
+      </div>
+      <div class="seg" role="radiogroup" aria-label="利き">
+        <label><input type="radio" name="hand" value="right" id="handR" checked><span id="handRLabel">右打ち</span></label>
+        <label><input type="radio" name="hand" value="left" id="handL"><span id="handLLabel">左打ち</span></label>
+      </div>
+    </div>
+    <div class="grid2">
+      <label class="field">選手<select id="playerSel"></select><button class="btn small ghost" type="button" data-goto-roster>＋名簿に追加</button></label>
+      <label class="field">AIの精度
+        <select id="modelKind"><option value="s">標準（おすすめ）</option><option value="n">速さ優先</option></select>
+      </label>
+    </div>
+    <div class="grid2">
+      <label class="field">動画のfps（自動）<input type="number" id="fpsInput" min="10" max="1000" step="1" inputmode="decimal"></label>
+      <label class="field">スロー撮影のfps<input type="number" id="realFpsInput" min="10" max="2000" step="1" inputmode="decimal" placeholder="同じ"></label>
+      <label class="field">解析の開始（秒）<input type="number" id="rangeStart" min="0" step="0.1" value="0" inputmode="decimal"></label>
+      <label class="field">解析の終了（秒）<input type="number" id="rangeEnd" min="0" step="0.1" inputmode="decimal"></label>
+    </div>
+    <p class="small muted">スローで撮った動画が普通の速さのファイル（30fpsなど）として保存されているときだけ、撮影したfps（例：240）を「撮影fps」に入れてください。</p>
+    <button class="btn red block" id="runBtn" disabled>解析する</button>
+    <div id="runBox" hidden class="stack" style="gap:8px">
+      <div class="progress"><i id="progBar"></i></div>
+      <div class="row"><span class="small grow" id="progText">準備中…</span><button class="btn small ghost" id="cancelBtn">中止</button></div>
+    </div>
+  </div>
+
+  <div id="results" class="stack"></div>
+
+</section>
+
+<!-- ===================== 比較 ===================== -->
+<section id="tab-compare" class="stack" hidden aria-label="比較">
+  <div class="card">
+    <div class="eyebrow">2つを比べる</div>
+    <p class="small muted">今回解析したものと、記録に保存したものから選べます。インパクト（投球はリリース）の瞬間でそろえて重ねます。</p>
+    <label class="field">A（青）<select id="cmpA"></select></label>
+    <label class="field">B（オレンジ）<select id="cmpB"></select></label>
+    <button class="btn primary" id="cmpBtn">比べる</button>
+  </div>
+  <div id="cmpOut" class="stack"></div>
+  <div class="card" id="cmpEmpty">
+    <h2>比べるものがまだありません</h2>
+    <p class="small muted">「解析」で動画を解析するか、「記録」に保存すると、ここで選べるようになります。</p>
+  </div>
+</section>
+
+<!-- ===================== 記録 ===================== -->
+<section id="tab-records" class="stack" hidden aria-label="記録">
+  <div class="card">
+    <div class="row">
+      <label class="field grow">選手<select id="recPlayer"><option value="">全員</option></select></label>
+      <label class="field grow">グラフにする項目<select id="recMetric"></select></label>
+    </div>
+    <div>
+      <div class="chart-title" id="recChartTitle">推移</div>
+      <canvas class="chart" id="recChart" aria-label="記録の推移グラフ"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <div class="row"><h2 class="grow">保存した記録</h2><span class="small muted" id="recCount"></span></div>
+    <div id="recList"></div>
+  </div>
+  <div class="card" id="rosterCard">
+    <h2>選手の名簿</h2>
+    <p class="small muted">解析や球速を保存するときに選ぶ選手です。名簿と記録は、このアプリを開いた全員が見られます。</p>
+    <div class="row"><input type="text" id="newPlayer" maxlength="40" placeholder="例：山田 太郎" style="flex:1 1 160px" aria-label="追加する選手の名前"><button class="btn small primary" id="addPlayerBtn" type="button">追加</button></div>
+    <div id="rosterList"></div>
+  </div>
+</section>
+
+<!-- ===================== 球速 ===================== -->
+<section id="tab-speed" class="stack" hidden aria-label="球速">
+  <div class="card">
+    <div class="eyebrow">コマ送りで球速を測る</div>
+    <div class="pick">
+      <div class="file-drop">
+        <input type="file" id="spCam" accept="video/*" capture="environment" aria-label="カメラで撮影する">
+        <strong>撮影する</strong>
+        <span class="small muted">カメラが開きます</span>
+      </div>
+      <div class="file-drop">
+        <input type="file" id="spFile" accept="video/*" aria-label="球速を測る動画を選ぶ">
+        <strong>動画を選ぶ</strong>
+        <span class="small muted">カメラロールから</span>
+      </div>
+    </div>
+    <button class="btn block" id="camOpenS" type="button">アプリ内カメラで撮る</button>
+    <p class="small muted">リリースからミットに届くまでが映っている動画を使います。fpsが高いほど正確です（スローモーション撮影がおすすめ）。</p>
+    <div id="spBox" hidden class="stack" style="gap:10px">
+      <div class="stage"><video id="spVideo" playsinline muted preload="auto"></video></div>
+      <div class="row">
+        <span class="mono small grow" id="spPos">0 コマ目</span>
+        <label class="field" style="width:120px">撮影fps<input type="number" id="spFps" min="10" max="1000" step="1" inputmode="decimal"></label>
+      </div>
+      <input type="range" id="spSeek" min="0" max="1000" value="0" aria-label="動画の位置">
+      <div class="controls">
+        <button class="btn small" data-step="-10">−10</button>
+        <button class="btn small" data-step="-1">◀ 1コマ</button>
+        <button class="btn small" data-step="1">1コマ ▶</button>
+        <button class="btn small" data-step="10">+10</button>
+      </div>
+      <div class="marks">
+        <div class="mark"><b>リリース</b><span class="num" id="spRel">—</span></div>
+        <div class="mark"><b>ミットに届いた</b><span class="num" id="spCatch">—</span></div>
+      </div>
+      <div class="grid2">
+        <button class="btn primary" id="spMarkRel">ここがリリース</button>
+        <button class="btn primary" id="spMarkCatch">ここで捕球</button>
+      </div>
+      <label class="field">リリースからミットまでの距離（m）<input type="number" id="spDist" value="17.0" step="0.1" min="5" max="25" inputmode="decimal"></label>
+      <p class="small muted">投手板から本塁までは18.44m。リリースは投手板より1.5〜2m前、ミットは本塁より少し後ろなので、目安は約17mです。</p>
+    </div>
+  </div>
+  <div class="card" id="spResult">
+    <div class="eyebrow">球速</div>
+    <div class="big-speed" id="spKmh">—<small>km/h</small></div>
+    <p class="small muted" id="spDetail">動画を選んで、リリースと捕球の瞬間に印を付けると計算されます。</p>
+    <div id="spSave" hidden class="sheet">
+      <div class="grid2">
+        <label class="field">選手<select id="spPlayerSel"></select><button class="btn small ghost" type="button" data-goto-roster>＋名簿に追加</button></label>
+        <label class="field">日付<input type="date" id="spDate"></label>
+      </div>
+      <label class="field">メモ<input type="text" id="spMemo" placeholder="例：ストレート、ブルペン" autocomplete="off"></label>
+      <button class="btn red" id="spSaveBtn">記録に保存</button>
+    </div>
+  </div>
+</section>
+</main>
+
+<nav class="tabs" id="appNav" hidden aria-label="画面の切り替え"><div class="in" role="tablist">
+  <button role="tab" aria-selected="true" data-tab="analyze" id="t-analyze">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="4.5" r="2"/><path d="M12 7v6l-3 7M12 13l3 7M7 10l5-1 5 1"/></svg>解析</button>
+  <button role="tab" aria-selected="false" data-tab="compare" id="t-compare">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="8" height="14" rx="1.5"/><rect x="13" y="5" width="8" height="14" rx="1.5"/></svg>比較</button>
+  <button role="tab" aria-selected="false" data-tab="records" id="t-records">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 5-6"/></svg>記録</button>
+  <button role="tab" aria-selected="false" data-tab="speed" id="t-speed">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 13l4-4M9 2h6"/></svg>球速</button>
+</div></nav>
+
+<div class="toast" id="toast" hidden role="status"></div>
+
+
+<div class="cam" id="camModal" hidden role="dialog" aria-label="カメラ">
+  <video id="camVideo" playsinline muted autoplay></video>
+  <div class="info" id="camInfo">カメラを準備しています…</div>
+  <div class="bar">
+    <button class="btn" id="camClose" type="button">閉じる</button>
+    <button class="rec" id="camRec" type="button" aria-label="録画の開始と停止"></button>
+    <button class="btn" id="camFlip" type="button">切り替え</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="config.js"></script>
+<script src="js/analysis.js"></script>
+<script src="js/app.js"></script>
+<script type="module" src="js/firebase.js"></script>
+</body>
+</html>

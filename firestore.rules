@@ -1,0 +1,28 @@
+rules_version = '2';
+// フォーム解析ノート（仮バージョン）のデータの守り方
+// - アプリを開いた人は自動で匿名ログインする（メールアドレスもパスワードも不要）
+// - アプリから開いた人は全員、全部の記録と選手の名簿を見る・追加する・消すことができる
+// - アプリを通さない直接のアクセス（ログインしていないもの）は断る
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+
+    match /records/{rid} {
+      allow read, delete: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.kind in ['swing', 'speed']
+        && request.resource.data.player is string
+        && request.resource.data.player.size() <= 40;
+      allow update: if false;
+    }
+
+    match /players/{pid} {
+      allow read, delete: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['name', 'createdAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40;
+      allow update: if false;
+    }
+  }
+}
