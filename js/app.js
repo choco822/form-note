@@ -75,7 +75,7 @@ const Store = {
   },
 };
 function fillPlayerSelects() {
-  const opts = Store.users.length ? Store.users.map((u) => `<option value="${esc(u.uid)}">${esc(u.name || "名前なし")}</option>`).join("") : `<option value="">（名簿が空です。「記録」画面で追加）</option>`;
+  const opts = Store.users.length ? Store.users.map((u) => `<option value="${esc(u.uid)}">${esc(u.name || "名前なし")}</option>`).join("") : `<option value="">名簿が空</option>`;
   for (const id of ["playerSel", "spPlayerSel"]) {
     const el = $(id); if (!el) continue;
     const cur = el.value; el.innerHTML = opts; el.disabled = !Store.users.length;
@@ -592,7 +592,7 @@ function summaryChips(sum, mode) {
 function renderResults() {
   const box = $("results"); const mode = S.A.mode, L = LABELS[mode];
   if (!S.events.length) {
-    box.innerHTML = `<div class="card"><h2>スイング・投球が見つかりませんでした</h2><p class="small muted">選手が小さすぎる、体が隠れている、または動きが映っていない可能性があります。選手をタップして選ぶ、解析する範囲を絞る、などを試してください。</p></div>`;
+    box.innerHTML = `<div class="card"><h2>スイング・投球が見つかりませんでした</h2></div>`;
     return;
   }
   const evHtml = S.events.map((ev, i) => `
@@ -617,7 +617,6 @@ function renderResults() {
   box.innerHTML = `
     <div class="card">
       <div class="row"><h2 class="grow">${S.events.length}回 見つかりました</h2><span class="small muted">${mode === "batting" ? "打撃" : "投球"}・${S.A.hand === "right" ? "右" : "左"}</span></div>
-      <p class="small muted">素振りや構え直しが混ざることがあります。違うものは「${mode === "batting" ? "スイングではない" : "投球ではない"}」で外してください。</p>
     </div>
     <div class="card" id="playerCard">
       <div class="row"><h2 class="grow" id="selTitle"></h2></div>
@@ -629,7 +628,6 @@ function renderResults() {
         <button class="btn small" data-rate="0.5">0.5倍</button>
         <button class="btn small" data-rate="1">等倍</button>
       </div>
-      <p class="small muted">上の動画に骨格が重なって再生されます。</p>
       <div><div class="chart-title">前足の膝（°）</div><canvas class="chart" id="chKnee"></canvas></div>
       <div><div class="chart-title" id="chElbowTitle">肘（°）</div><div class="legend" id="lgElbow"></div><canvas class="chart" id="chElbow"></canvas></div>
       <div><div class="chart-title">${mode === "batting" ? "投手" : "捕手"}方向への移動（胴の長さ＝1）</div><div class="legend" id="lgMove"></div><canvas class="chart" id="chMove"></canvas></div>
@@ -701,7 +699,7 @@ async function onEventAction(act, i) {
           <label class="field">選手<select id="svP-${i}" ${Store.isStaff() ? "" : "disabled"}>${Store.users.map((u) => `<option value="${esc(u.uid)}" ${u.uid === ev.playerUid ? "selected" : ""}>${esc(u.name || "名前なし")}</option>`).join("")}</select></label>
           <label class="field">日付<input type="date" id="svD-${i}" value="${todayStr()}"></label>
         </div>
-        <label class="field">メモ<input type="text" id="svM-${i}" placeholder="例：フリー打撃、好調時" autocomplete="off"></label>
+        <label class="field">メモ<input type="text" id="svM-${i}" autocomplete="off"></label>
         <div class="row"><label class="row small"><input type="checkbox" id="svV-${i}" ${typeof MediaRecorder === "undefined" ? "disabled" : "checked"}> 短い動画も保存（約2.5秒・0.3MBほど）</label>
         <label class="row small"><input type="checkbox" id="svVS-${i}" checked> 動画に骨格を重ねる</label></div>
         <button class="btn red" id="svB-${i}">保存する</button>
@@ -739,7 +737,6 @@ async function onEventAction(act, i) {
         </div>
         <label class="row small"><input type="checkbox" id="clipSk-${i}" checked> 骨格を重ねる</label>
       </div>
-      <p class="small muted">${L_main()}の1.5秒前から1秒後までを動画にします。作っている間は動画が再生されます。</p>
       <button class="btn red" id="clipGo-${i}">動画を作る</button>
       <span class="small muted" id="clipMsg-${i}"></span>`;
     $("clipGo-" + i).addEventListener("click", async () => {
@@ -891,7 +888,6 @@ function renderCompare(a, b) {
     </div>
     <div class="card">
       <h2>骨格を重ねる</h2>
-      <p class="small muted">構えたときの腰の位置と体の大きさをそろえ、${a.mode === "batting" ? "投手" : "捕手"}方向を右にそろえています。</p>
       <div class="stage" style="aspect-ratio:4/3"><canvas id="cmpCanvas"></canvas></div>
       <div class="row"><button class="btn small" id="cmpPlay">再生</button><input type="range" id="cmpSeek" min="0" max="1000" value="0" class="grow" aria-label="時間"><span class="mono small" id="cmpT"></span></div>
     </div>
@@ -979,7 +975,7 @@ function renderRecords() {
     if (d.kind === "speeds") return `<div class="rec"><div class="speed-thumb">${fmt(d.kmh)}</div><div class="stack" style="gap:2px;min-width:0">${head}<span class="small">球速 ${fmt(d.kmh, 1)} km/h（${fmt(d.frames)}コマ・${fmt(d.fps)}fps）${d.memo ? "・" + esc(d.memo) : ""}</span></div><button class="btn small ghost" data-del="${d.kind}:${esc(d.id)}">${pendingDelete.has(d.id) ? "本当に消す" : "消す"}</button></div>`;
     const m = d.mode === "pitching" ? "リリース" : "インパクト";
     return `<div class="rec" data-open="${esc(d.id)}" role="button" tabindex="0" aria-label="${esc(d.player || "")}の解析結果を見る">${d.thumb ? `<img src="${d.thumb}" alt="">` : `<div class="speed-thumb">${d.mode === "pitching" ? "投" : "打"}</div>`}<div class="stack" style="gap:2px;min-width:0">${head}<span class="small">${d.mode === "batting" ? "打撃" : "投球"}・${d.hand === "right" ? "右" : "左"}${d.memo ? "・" + esc(d.memo) : ""}${d.clipN ? "・動画あり" : ""}</span><span class="small muted mono">膝の伸び ${isNum(d.kneeExtension) ? (d.kneeExtension > 0 ? "+" : "") + d.kneeExtension + "°" : "—"} ／ 着地→${m} ${fmt(d.plantToMain, 2)}秒</span></div><button class="btn small ghost" data-del="${d.kind}:${esc(d.id)}">${pendingDelete.has(d.id) ? "本当に消す" : "消す"}</button></div>`;
-  }).join("") : `<div class="empty"><p class="small muted">まだ記録がありません。「解析」の結果で「記録に保存」を押すか、「球速」で測った値を保存すると、ここにたまっていきます。</p></div>`;
+  }).join("") : `<p class="small muted">まだ記録がない</p>`;
   $("recList").querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", (e) => {
     if (e.target.closest("[data-del]")) return;
     const d = Store.data.swings.find((x) => x.id === el.dataset.open);
@@ -996,7 +992,7 @@ function renderRecords() {
     .map((d) => ({ d: d.date || (d.createdAt || "").slice(0, 10), c: d.createdAt || "", v: met.get(d), p: d.player }))
     .filter((x) => isNum(x.v)).sort((a, b) => (a.d + a.c).localeCompare(b.d + b.c));
   $("recChartTitle").textContent = `${met.name}の推移${pf ? "（" + nm(pf) + "）" : Store.isStaff() ? "（全員）" : ""}`;
-  drawChart($("recChart"), { series: [{ color: css("--c1"), pts: pts.map((x, i) => [i, x.v]), dots: true, name: met.name }], xticks: pts.map((x, i) => [i, x.d.slice(5).replace("-", "/")]), pad: 0.15, empty: "記録が2件以上たまると推移が表示されます", minPoints: 2 });
+  drawChart($("recChart"), { series: [{ color: css("--c1"), pts: pts.map((x, i) => [i, x.v]), dots: true, name: met.name }], xticks: pts.map((x, i) => [i, x.d.slice(5).replace("-", "/")]), pad: 0.15, empty: "記録が2件以上で表示", minPoints: 2 });
 }
 // 保存した記録1件の解析結果（解析した直後の画面とほぼ同じもの）
 let recDetailId = null;
@@ -1107,11 +1103,11 @@ function spUpdate() {
     const n = SP.catch - SP.rel, kmh = dist / (n / fps) * 3.6;
     const hi = dist / ((n - 1) / fps) * 3.6, lo = dist / ((n + 1) / fps) * 3.6;
     $("spKmh").innerHTML = `${kmh.toFixed(1)}<small>km/h</small>`;
-    $("spDetail").textContent = `${n}コマ（${(n / fps).toFixed(3)}秒）で${dist}m。印が1コマずれると ${lo.toFixed(0)}〜${n > 1 ? hi.toFixed(0) : "—"} km/h の幅があります。fpsが高いほど正確になります。`;
+    $("spDetail").textContent = `${n}コマ（${(n / fps).toFixed(3)}秒）・${dist}m／1コマずれると ${lo.toFixed(0)}〜${n > 1 ? hi.toFixed(0) : "—"} km/h`;
     $("spSave").hidden = false; SP.result = { kmh: Math.round(kmh * 10) / 10, frames: n, fps, distance: dist };
   } else {
     $("spKmh").innerHTML = `—<small>km/h</small>`;
-    $("spDetail").textContent = SP.rel !== null && SP.catch !== null ? "捕球はリリースより後のコマにしてください。" : "動画を選んで、リリースと捕球の瞬間に印を付けると計算されます。";
+    $("spDetail").textContent = SP.rel !== null && SP.catch !== null ? "捕球はリリースより後のコマにする" : "";
     $("spSave").hidden = true; SP.result = null;
   }
 }
@@ -1222,7 +1218,7 @@ function renderRoster() {
   el.innerHTML = Store.users.length ? Store.users.map((u) => `
     <div class="member"><div style="min-width:0"><b>${esc(u.name)}</b><br><span class="small muted">記録 ${count(u.uid)}件</span></div>
     <button class="btn small ghost" data-delp="${esc(u.uid)}">${pendingRoster.has(u.uid) ? "本当に消す" : "名簿から消す"}</button></div>`).join("")
-    : `<p class="small muted">まだ選手がいません。上の欄に名前を入れて「追加」を押してください。</p>`;
+    : `<p class="small muted">まだ選手がいない</p>`;
   el.querySelectorAll("[data-delp]").forEach((b) => b.addEventListener("click", async () => {
     const id = b.dataset.delp;
     if (!pendingRoster.has(id)) { pendingRoster.add(id); renderRoster(); setTimeout(() => { pendingRoster.delete(id); renderRoster(); }, 4000); return; }

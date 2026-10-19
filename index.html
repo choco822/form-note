@@ -10,7 +10,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<title>フォーム解析ノート</title>
+<title>解析ノート</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=JetBrains+Mono:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
@@ -211,10 +211,15 @@ body.chart-live #appMain { padding-top: 10px !important; }
 .ch-game { display: grid; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .ch-game:last-child { border-bottom: 0; }
 .ch-lrow { display: flex; gap: 6px; align-items: center; min-width: 0; }
-.ch-lrow > .grow { flex: 1 1 auto; min-width: 0; }
+.ch-lrow > input, .ch-lrow > select { width: auto; min-width: 0; }
+.ch-lrow > .grow { flex: 1 1 auto; min-width: 0; width: 0; }
+.ch-lrow > .btn { flex: none; white-space: nowrap; }
+.tm-row { flex-wrap: wrap; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.tm-row > .grow { flex: 1 1 calc(100% - 5.2em); width: auto; }
+.tm-row > .ch-hand { flex: 1 1 0; }
 .ch-no { width: 22px; text-align: center; font-family: var(--font-mono); font-weight: 700; color: var(--muted); flex: none; }
-.ch-num { width: 4.6em; flex: none; }
-.ch-hand { width: auto; flex: none; }
+.ch-lrow > .ch-num { width: 4.4em; flex: none; }
+.ch-lrow > .ch-hand, .ch-hand { width: auto; flex: none; padding-left: 8px; padding-right: 22px; }
 .cl-status { gap: 6px; padding: 10px 12px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 4px); z-index: 15; }
 .cl-video ~ .cl-status { position: static; }
 .cl-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -278,7 +283,7 @@ table.st-table td:first-child, table.st-table th:first-child { white-space: nowr
 
 
 <header class="top"><div class="in">
-  <h1><small>DATA STAFF TOOL</small>フォーム解析ノート</h1>
+  <h1><small>DATA STAFF TOOL</small>解析ノート</h1>
   <div class="me" id="meBox" hidden><span class="chip turf">チーム共有（仮バージョン）</span></div>
 </div></header>
 
@@ -300,8 +305,8 @@ table.st-table td:first-child, table.st-table th:first-child { white-space: nowr
         <strong>撮影</strong>
       </div>
       <div class="file-drop">
-        <input type="file" id="fileInput" accept="video/*" aria-label="解析する動画を選ぶ">
-        <strong>動画を選ぶ</strong>
+        <input type="file" id="fileInput" accept="video/*" aria-label="動画を選択">
+        <strong>動画を選択</strong>
       </div>
     </div>
     <button id="camOpenA" type="button" hidden></button>
@@ -339,12 +344,10 @@ table.st-table td:first-child, table.st-table th:first-child { white-space: nowr
       <label class="field">解析の開始（秒）<input type="number" id="rangeStart" min="0" step="0.1" value="0" inputmode="decimal"></label>
       <label class="field">解析の終了（秒）<input type="number" id="rangeEnd" min="0" step="0.1" inputmode="decimal"></label>
     </div>
-    <p class="small muted">スローで撮った動画が普通の速さのファイル（30fpsなど）として保存されているときだけ、撮影したfps（例：240）を「撮影fps」に入れてください。</p>
     <button class="btn red block" id="runBtn" disabled>解析する</button>
     <div id="runBox" hidden class="stack" style="gap:8px">
       <div class="progress"><i id="progBar"></i></div>
       <div class="row"><span class="small grow" id="progText">準備中…</span><button class="btn small ghost" id="cancelBtn">中止</button></div>
-      <p class="small muted" style="margin:0">解析中は、このアプリを開いたままにしてください。他のアプリに切り替えると一時停止して、戻ると続きから再開します。</p>
     </div>
   </div>
 
@@ -355,16 +358,14 @@ table.st-table td:first-child, table.st-table th:first-child { white-space: nowr
 <!-- ===================== 比較 ===================== -->
 <section id="tab-compare" class="stack" hidden aria-label="比較">
   <div class="card">
-    <div class="eyebrow">2つを比べる</div>
-    <p class="small muted">今回解析したものと、記録に保存したものから選べます。インパクト（投球はリリース）の瞬間でそろえて重ねます。</p>
+    <div class="eyebrow">比較</div>
     <label class="field">A（青）<select id="cmpA"></select></label>
     <label class="field">B（オレンジ）<select id="cmpB"></select></label>
     <button class="btn primary" id="cmpBtn">比べる</button>
   </div>
   <div id="cmpOut" class="stack"></div>
   <div class="card" id="cmpEmpty">
-    <h2>比べるものがまだありません</h2>
-    <p class="small muted">「解析」で動画を解析するか、「記録」に保存すると、ここで選べるようになります。</p>
+    <h2>比べるものがない</h2>
   </div>
 </section>
 
@@ -385,13 +386,11 @@ table.st-table td:first-child, table.st-table th:first-child { white-space: nowr
   </div>
   <div class="card">
     <div class="row"><h2 class="grow">保存した記録</h2><span class="small muted" id="recCount"></span></div>
-    <p class="small muted" style="margin:0">打撃・投球の記録をタップすると、そのときの解析結果が見られます。</p>
     <div id="recList"></div>
   </div>
   <div class="card" id="rosterCard">
     <h2>選手の名簿</h2>
-    <p class="small muted">解析や球速を保存するときに選ぶ選手です。名簿と記録は、このアプリを開いた全員が見られます。</p>
-    <div class="row"><input type="text" id="newPlayer" maxlength="40" placeholder="例：山田 太郎" style="flex:1 1 160px" aria-label="追加する選手の名前"><button class="btn small primary" id="addPlayerBtn" type="button">追加</button></div>
+    <div class="row"><input type="text" id="newPlayer" maxlength="40" placeholder="名前" style="flex:1 1 160px" aria-label="追加する選手の名前"><button class="btn small primary" id="addPlayerBtn" type="button">追加</button></div>
     <div id="rosterList"></div>
   </div>
 </section>
@@ -399,21 +398,17 @@ table.st-table td:first-child, table.st-table th:first-child { white-space: nowr
 <!-- ===================== 球速 ===================== -->
 <section id="tab-speed" class="stack" hidden aria-label="球速">
   <div class="card">
-    <div class="eyebrow">コマ送りで球速を測る</div>
     <div class="pick">
       <div class="file-drop">
         <input type="file" id="spCam" accept="video/*" capture="environment" aria-label="カメラで撮影する">
-        <strong>撮影する</strong>
-        <span class="small muted">カメラが開きます</span>
+        <strong>撮影</strong>
       </div>
       <div class="file-drop">
-        <input type="file" id="spFile" accept="video/*" aria-label="球速を測る動画を選ぶ">
-        <strong>動画を選ぶ</strong>
-        <span class="small muted">カメラロールから</span>
+        <input type="file" id="spFile" accept="video/*" aria-label="動画を選択">
+        <strong>動画を選択</strong>
       </div>
     </div>
-    <button class="btn block" id="camOpenS" type="button">アプリ内カメラで撮る</button>
-    <p class="small muted">リリースからミットに届くまでが映っている動画を使います。fpsが高いほど正確です（スローモーション撮影がおすすめ）。</p>
+    <button id="camOpenS" type="button" hidden></button>
     <div id="spBox" hidden class="stack" style="gap:10px">
       <div class="stage"><video id="spVideo" playsinline muted preload="auto"></video></div>
       <div class="row">
@@ -436,19 +431,18 @@ table.st-table td:first-child, table.st-table th:first-child { white-space: nowr
         <button class="btn primary" id="spMarkCatch">ここで捕球</button>
       </div>
       <label class="field">リリースからミットまでの距離（m）<input type="number" id="spDist" value="17.0" step="0.1" min="5" max="25" inputmode="decimal"></label>
-      <p class="small muted">投手板から本塁までは18.44m。リリースは投手板より1.5〜2m前、ミットは本塁より少し後ろなので、目安は約17mです。</p>
     </div>
   </div>
   <div class="card" id="spResult">
     <div class="eyebrow">球速</div>
     <div class="big-speed" id="spKmh">—<small>km/h</small></div>
-    <p class="small muted" id="spDetail">動画を選んで、リリースと捕球の瞬間に印を付けると計算されます。</p>
+    <p class="small muted" id="spDetail"></p>
     <div id="spSave" hidden class="sheet">
       <div class="grid2">
         <label class="field">選手<select id="spPlayerSel"></select><button class="btn small ghost" type="button" data-goto-roster>＋名簿に追加</button></label>
         <label class="field">日付<input type="date" id="spDate"></label>
       </div>
-      <label class="field">メモ<input type="text" id="spMemo" placeholder="例：ストレート、ブルペン" autocomplete="off"></label>
+      <label class="field">メモ<input type="text" id="spMemo" autocomplete="off"></label>
       <button class="btn red" id="spSaveBtn">記録に保存</button>
     </div>
   </div>

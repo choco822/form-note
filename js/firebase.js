@@ -20,11 +20,19 @@ if (!cfg.apiKey || String(cfg.apiKey).startsWith("ここに")) {
   const toStore = (d) => { const o = { ...d }; if (o.skel) { o.skelJson = JSON.stringify(o.skel); delete o.skel; } return o; };
   const fromStore = (id, d) => { const o = { id, ...d }; if (o.skelJson) { try { o.skel = JSON.parse(o.skelJson); } catch (e) { o.skel = null; } delete o.skelJson; } delete o.serverTime; return o; };
 
+  // 書き込み：電波がないときも、スマホの中には先に保存される。送信の完了は最大1.5秒だけ待ち、
+  // それ以上かかるときは待たずに進める（送信は裏で続き、電波が戻ると自動で送られる）
+  const w = (p) => { p.catch((e) => console.error("書き込みエラー", e)); return Promise.race([p, new Promise((r) => setTimeout(r, 1500))]); };
+  const newId = (col) => doc(collection(db, col)).id;
   window.FB = {
     // 自動でログインして、ログインできたら cb(uid) を呼ぶ
+    // 一度ログインしたスマホは、電波がなくてもそのまま使える
     start(cb, onError) {
-      onAuthStateChanged(auth, (u) => { if (u) cb(u.uid); });
-      signInAnonymously(auth).catch(onError);
+      let started = false, tried = false;
+      onAuthStateChanged(auth, (u) => {
+        if (u) { if (!started) { started = true; cb(u.uid); } return; }
+        if (!tried) { tried = true; signInAnonymously(auth).catch(onError); }
+      });
     },
     watchRecords(cb, onError) {
       return onSnapshot(collection(db, "records"), (s) => cb(s.docs.map((d) => fromStore(d.id, d.data()))), onError);
@@ -59,19 +67,19 @@ if (!cfg.apiKey || String(cfg.apiKey).startsWith("ここに")) {
     async addPlayer(name, extra = {}) {
       const d = { name, createdAt: new Date().toISOString() };
       for (const k of ["team", "number", "throws", "bats"]) if (extra[k]) d[k] = String(extra[k]);
-      const r = await addDoc(collection(db, "players"), d); return r.id;
+      const id = newId("players"); await w(setDoc(doc(db, "players", id), d)); return id;
     },
-    async updatePlayer(id, patch) { await updateDoc(doc(db, "players", id), patch); },
-    async deletePlayer(id) { await deleteDoc(doc(db, "players", id)); },
+    async updatePlayer(id, patch) { await w(updateDoc(doc(db, "players", id), patch)); },
+    async deletePlayer(id) { await w(deleteDoc(doc(db, "players", id))); },
 
     // ===== 一球チャート =====
     watchGames(cb, onError) { return onSnapshot(collection(db, "games"), (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data() }))), onError); },
-    async addGame(data) { const r = await addDoc(collection(db, "games"), data); return r.id; },
-    async updateGame(id, patch) { await updateDoc(doc(db, "games", id), patch); },
+    async addGame(data) { const id = newId("games"); await w(setDoc(doc(db, "games", id), data)); return id; },
+    async updateGame(id, patch) { await w(updateDoc(doc(db, "games", id), patch)); },
     async deleteGame(id) {
       const s = await getDocs(query(collection(db, "pitches"), where("gameId", "==", id)));
-      for (const d of s.docs) await deleteDoc(d.ref);
-      await deleteDoc(doc(db, "games", id));
+      for (const d of s.docs) w(deleteDoc(d.ref));
+      await w(deleteDoc(doc(db, "games", id)));
     },
     // 電波が悪くて、まだ送れていない球の数も返す
     watchPitches(gameId, cb, onError) {
@@ -79,11 +87,11 @@ if (!cfg.apiKey || String(cfg.apiKey).startsWith("ここに")) {
         (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data() })), s.docs.filter((d) => d.metadata.hasPendingWrites).length), onError);
     },
     async getPitches(gameId) { const s = await getDocs(query(collection(db, "pitches"), where("gameId", "==", gameId))); return s.docs.map((d) => ({ id: d.id, ...d.data() })); },
-    async addPitch(id, data) { await setDoc(doc(db, "pitches", id), data); },
-    async updatePitch(id, patch) { await updateDoc(doc(db, "pitches", id), patch); },
-    async deletePitch(id) { await deleteDoc(doc(db, "pitches", id)); },
+    async addPitch(id, data) { await w(setDoc(doc(db, "pitches", id), data)); },
+    async updatePitch(id, patch) { await w(updateDoc(doc(db, "pitches", id), patch)); },
+    async deletePitch(id) { await w(deleteDoc(doc(db, "pitches", id))); },
     watchSetting(key, cb, onError) { return onSnapshot(doc(db, "settings", key), (s) => cb(s.exists() ? s.data() : null), onError); },
-    async setSetting(key, data) { await setDoc(doc(db, "settings", key), data); },
+    async setSetting(key, data) { await w(setDoc(doc(db, "settings", key), data)); },
   };
   window.dispatchEvent(new Event("fb-ready"));
 }

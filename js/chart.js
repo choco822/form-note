@@ -96,15 +96,18 @@
   // ---------- データの読み込み ----------
   function start() {
     if (!window.FB || !FB.watchGames) return;
+    watchRoster();
     FB.watchGames((gs) => {
       C.games = gs.sort((a, b) => ((b.date || "") + (b.createdAt || "")).localeCompare((a.date || "") + (a.createdAt || "")));
       if (!$("tab-chart").hidden && (C.view === "home" || C.view === "live")) render(C.view === "live");
-    }, () => toast("試合の一覧を読み込めませんでした"));
+    }, () => toast("試合の一覧を読み込めない"));
     FB.watchSetting("pitchTypes", (d) => {
       if (d && Array.isArray(d.types) && d.types.length) C.types = d.types;
       if (!$("tab-chart").hidden && C.view !== "setup" && C.view !== "types" && C.view !== "stats") render(C.view === "live");
     }, () => {});
   }
+  // 名簿が変わったら、チームの画面を描き直す
+  function watchRoster() { if (Store.onChange) Store.onChange(() => { if (!$("tab-chart").hidden && (C.view === "teams" || C.view === "team")) render(); }); }
   function openGame(id) {
     if (C.unsub) { C.unsub(); C.unsub = null; }
     C.gameId = id; C.pitches = []; C.pending = 0;
@@ -112,7 +115,7 @@
     C.unsub = FB.watchPitches(id, (ps, pending) => {
       C.pitches = ps.sort((a, b) => a.seq - b.seq); C.pending = pending || 0;
       if (!$("tab-chart").hidden && (C.view === "live" || C.view === "stats")) render(true);
-    }, () => toast("この試合の記録を読み込めませんでした"));
+    }, () => toast("この試合の記録を読み込めない"));
   }
 
   // ---------- 画面の切り替え ----------
@@ -132,6 +135,8 @@
     if (C.view === "live") return renderLive(r, soft);
     if (C.view === "stats") return renderStats(r, soft);
     if (C.view === "types") return soft ? null : renderTypes(r);
+    if (C.view === "teams") return renderTeams(r);
+    if (C.view === "team") return renderTeam(r);
   }
 
   // ===================== 試合の一覧 =====================
@@ -155,6 +160,7 @@
         <div class="controls">
           <button class="btn red" id="chNew" type="button">＋ 新しい試合</button>
           <button class="btn" id="chStatsAll" type="button">集計（全試合）</button>
+          <button class="btn ghost" id="chTeams" type="button">チームの名簿</button>
           <button class="btn ghost" id="chTypes" type="button">球種の設定</button>
         </div>
       </div>
@@ -162,29 +168,30 @@
         <summary><b>使い方（試合中に入力する人へ）</b></summary>
         <ol class="steps small">
           <li><span>試合の前に「＋ 新しい試合」で、相手チーム・先攻後攻・両チームの打順と先発投手を入れる（相手の打順は分からなければ空でOK）</span></li>
-          <li><span>試合中は、1球ごとに結果のボタンを1回押すだけ：<b>ボール／見逃し／空振り／ファウル／打球／死球</b>。カウント・アウト・イニング・次の打者は自動で進みます</span></li>
-          <li><span>「打球」のときは、ゴロ・フライなどの種類 → 打球方向（守備位置を押すか、グラウンドの図をタップ）→ 結果（アウト・単打など）</span></li>
+          <li><span>試合中は、1球ごとに結果のボタンを1回押すだけ：<b>ボール／見逃し／空振り／ファウル／打球／死球</b>。カウント・アウト・イニング・次の打者は自動で進む</span></li>
+          <li><span>「打球」のときは、打球の種類 → 打球方向（守備位置を押すか、グラウンドの図をタップ）→ 結果</span></li>
           <li><span>押し間違えたら「1球取り消し」（2回押すと取り消し）</span></li>
-          <li><span>投手交代・代打は、上の「投」「打」の欄を押して選びます。名簿にいない選手は、その場で背番号と名前を入れて追加できます</span></li>
-          <li><span>盗塁死・けん制死などでアウトが増えたとき、得点が入ったときは「手で直す・交代」で直します</span></li>
-          <li><span>電波が悪くても入力は止まりません。「未送信」と出ていても、電波が戻ると自動で送られます</span></li>
-          <li><span>球種やコースが分かる人は「球種・コースも入れる」をオンにすると入力できます。分からなければ、試合後に動画を見ながら「動画で入力」で足せます</span></li>
+          <li><span>投手交代・代打は、上の「投」「打」の欄を押して選ぶ。名簿にいない選手は、その場で背番号と名前を入れて追加できる</span></li>
+          <li><span>打球以外でアウトが増えたとき、得点が入ったときは「手で直す・交代」で直す</span></li>
+          <li><span>電波が悪くても入力は止まらない。「未送信」と出ていても、電波が戻ると自動で送られる</span></li>
+          <li><span>球種やコースが分かる人は「球種・コースも入れる」をオンにすると入力できる。分からなければ、試合後に動画を見ながら「動画で入力」で足せる</span></li>
         </ol>
         <b class="small">試合の撮影のコツ</b>
         <ul class="ch-tips">
           <li>バックネット裏の高い位置から、投手・打者・捕手が入るように三脚で固定する</li>
           <li>画質は720p・30fpsで十分（2時間で5GBほど）。スマホの空き容量を確認しておく</li>
-          <li>モバイルバッテリーをつないでおく。機内モードにすると電池が長持ちします</li>
-          <li>途中で止めずに撮りっぱなしにすると、あとで入力と合わせやすくなります</li>
+          <li>モバイルバッテリーをつないでおく。機内モードにすると電池が長持ちする</li>
+          <li>途中で止めずに撮りっぱなしにすると、あとで入力と合わせやすくなる</li>
         </ul>
       </details>
       <div class="card">
         <h2>試合</h2>
-        ${rows || `<p class="small muted">まだ試合がありません</p>`}
+        ${rows || `<p class="small muted">まだ試合がない</p>`}
       </div>`;
     $("chNew").onclick = () => { C.editGameId = null; go("setup"); };
     $("chStatsAll").onclick = () => { C.stats.game = "all"; C.stats.who = null; go("stats", { gameId: null }); };
     $("chTypes").onclick = () => go("types");
+    $("chTeams").onclick = () => go("teams");
     r.querySelectorAll("[data-g-live]").forEach((b) => (b.onclick = () => go("live", { gameId: b.dataset.gLive, mode: "live" })));
     r.querySelectorAll("[data-g-video]").forEach((b) => (b.onclick = () => go("live", { gameId: b.dataset.gVideo, mode: "video" })));
     r.querySelectorAll("[data-g-stats]").forEach((b) => (b.onclick = () => { C.stats.game = b.dataset.gStats; C.stats.who = null; go("stats", { gameId: b.dataset.gStats }); }));
@@ -193,7 +200,7 @@
       const id = b.dataset.gDel;
       if (C.confirmDel !== id) { C.confirmDel = id; renderHome(r); setTimeout(() => { if (C.confirmDel === id) { C.confirmDel = null; if (C.view === "home") renderHome(root()); } }, 4000); return; }
       C.confirmDel = null;
-      try { if (C.gameId === id) openGame(null); await FB.deleteGame(id); toast("試合を消しました"); } catch (e) { console.error(e); toast("消せませんでした"); }
+      try { if (C.gameId === id) openGame(null); await FB.deleteGame(id); toast("試合を消した"); } catch (e) { console.error(e); toast("消せなかった"); }
     }));
   }
 
@@ -213,10 +220,10 @@
         <div class="row"><button class="btn small ghost" id="chBack" type="button">← 戻る</button><h2 class="grow">${g ? "試合を編集" : "新しい試合"}</h2></div>
         <div class="grid2">
           <label class="field">日付<input type="date" id="chDate" value="${esc((g && g.date) || todayStr())}"></label>
-          <label class="field">相手チーム<input type="text" id="chOpp" list="chTeamList" maxlength="40" placeholder="例：〇〇大学" value="${esc((g && g.opponent) || "")}"></label>
+          <label class="field">相手チーム<input type="text" id="chOpp" list="chTeamList" maxlength="40" value="${esc((g && g.opponent) || "")}"></label>
         </div>
         <datalist id="chTeamList">${teams().map((t) => `<option value="${esc(t)}">`).join("")}</datalist>
-        <label class="field">メモ（大会名・球場など）<input type="text" id="chMemo" maxlength="60" placeholder="例：新人戦 1回戦" value="${esc((g && g.memo) || "")}"></label>
+        <label class="field">メモ<input type="text" id="chMemo" maxlength="60" value="${esc((g && g.memo) || "")}"></label>
         <div class="row"><span class="small muted">自チームは</span>
           <div class="seg" role="radiogroup" aria-label="先攻・後攻">
             <label><input type="radio" name="chTop" value="1" ${!g || g.usTop ? "checked" : ""}><span>先攻</span></label>
@@ -227,7 +234,7 @@
         <h2>自チーム</h2>
         <div class="ch-lrow"><span class="ch-no">投</span><select id="usP" class="grow" aria-label="先発投手">${ourOpts(up && up.pid)}</select>${handSel("usPh", (up && up.hand) || "R", false)}</div>
         ${[...Array(9).keys()].map(ourRow).join("")}
-        <div class="row"><input type="text" id="chAddOur" maxlength="40" placeholder="名簿にいない選手を追加（例：12 山田）" class="grow"><button class="btn small" id="chAddOurBtn" type="button">追加</button></div>
+        <div class="row"><input type="text" id="chAddOur" maxlength="40" placeholder="名簿にいない選手を追加（背番号 名前）" class="grow"><button class="btn small" id="chAddOurBtn" type="button">追加</button></div>
       </div>
       <div class="card">
         <h2>相手チーム</h2>
@@ -252,11 +259,11 @@
     $("chAddOurBtn").onclick = async () => {
       const v = $("chAddOur").value.trim(); if (!v) return;
       const m = v.match(/^#?(\d{1,4})\s+(.+)$/); const number = m ? m[1] : "", name = (m ? m[2] : v).trim();
-      try { await FB.addPlayer(name, { number }); toast(`${name}さんを追加しました`); $("chAddOur").value = ""; setTimeout(() => renderSetup(r), 400); } catch (e) { toast("追加できませんでした"); }
+      try { await FB.addPlayer(name, { number }); toast(`${name}を追加した`); $("chAddOur").value = ""; setTimeout(() => renderSetup(r), 400); } catch (e) { toast("追加できなかった"); }
     };
     $("chSave").onclick = async () => {
       const opponent = $("chOpp").value.trim(), date = $("chDate").value || todayStr();
-      if (!opponent) { toast("相手チームの名前を入れてください"); $("chOpp").focus(); return; }
+      if (!opponent) { toast("相手チームの名前を入れる"); $("chOpp").focus(); return; }
       $("chSave").disabled = true;
       try {
         // 自チーム：選んだ選手。左右が名簿と違えば名簿も直す
@@ -284,12 +291,12 @@
           if (usP && (!live.pitcher.us || C.pitches.length === 0)) live.pitcher.us = usP;
           if (oppP && (!live.pitcher.opp || C.pitches.length === 0)) live.pitcher.opp = oppP;
           await FB.updateGame(g.id, { ...meta, live });
-          toast("保存しました"); go("home");
+          toast("保存した"); go("home");
         } else {
           const id = await FB.addGame({ ...meta, live: initLive(usP, oppP), createdAt: new Date().toISOString() });
-          toast("試合を登録しました"); go("live", { gameId: id, mode: "live" });
+          toast("試合を登録した"); go("live", { gameId: id, mode: "live" });
         }
-      } catch (e) { console.error(e); toast("保存できませんでした。通信状態を確認してください"); }
+      } catch (e) { console.error(e); toast("保存できなかった。通信状態を確認"); }
       finally { const b = $("chSave"); if (b) b.disabled = false; }
     };
   }
@@ -298,11 +305,11 @@
   // ===================== 入力画面 =====================
   async function saveLive(g, s) {
     g.live = s; // 画面はすぐ更新する（電波が悪くても、送信は裏で続く）
-    FB.updateGame(g.id, { live: s, date: g.date, opponent: g.opponent, updatedAt: new Date().toISOString() }).catch((e) => { console.error(e); toast("保存できませんでした"); });
+    FB.updateGame(g.id, { live: s, date: g.date, opponent: g.opponent, updatedAt: new Date().toISOString() }).catch((e) => { console.error(e); toast("保存できなかった"); });
   }
   function renderLive(r, soft) {
     const g = game();
-    if (!g) { r.innerHTML = `<div class="card"><p class="small muted">試合を読み込んでいます…</p><button class="btn small" id="chBack">← 一覧へ</button></div>`; $("chBack").onclick = () => go("home"); return; }
+    if (!g) { r.innerHTML = `<div class="card"><p class="small muted">試合を読み込み中…</p><button class="btn small" id="chBack">← 一覧へ</button></div>`; $("chBack").onclick = () => go("home"); return; }
     const s = liveOf(g);
     if (soft && r.querySelector("#clStatus")) { updateLiveParts(g, s); return; }
     const video = C.mode === "video";
@@ -395,7 +402,7 @@
     const lastPA = lastPAStart > 0 ? C.pitches[lastPAStart - 1] : null;
     $("clPA").innerHTML = (cur.length ? `<div class="small muted">この打席</div><div class="chips">${cur.map((x, i) => `<span class="chip" style="border-color:${x.typeId ? typeColor(x.typeId) : "var(--line)"}">${i + 1} ${esc(typeName(x) || "")} ${RES_LABEL[x.result]}${x.speed ? " " + x.speed : ""}</span>`).join("")}</div>` : "")
       + (lastPA ? `<div class="small muted">前の打席：${esc(lastPA.batterName || "")} ${PA_LABEL[lastPA.paResult] || ""}${lastPA.bbPos ? "（" + posLabel(lastPA.bbPos) + "）" : ""}</div>` : "");
-    if ($("clSync")) $("clSync").textContent = C.pending ? `未送信 ${C.pending}球（電波が戻ると自動で送ります）` : `${C.pitches.length}球 入力済み`;
+    if ($("clSync")) $("clSync").textContent = C.pending ? `未送信 ${C.pending}球（電波が戻ると自動で送る）` : `${C.pitches.length}球 入力済み`;
     if ($("clList")) renderPitchList();
     drawZoneInput();
   }
@@ -464,7 +471,7 @@
     const showTypes = C.mode === "video" || pref.get("chartTypes", false);
     if (showTypes && !C.sel.typeId) {
       // 球種はなくても保存できるが、入れ忘れに気づけるように一度だけ知らせる
-      if (!C.warnedType) { C.warnedType = true; toast("球種が選ばれていません。もう一度押すと球種なしで保存します"); setTimeout(() => { C.warnedType = false; }, 3000); return; }
+      if (!C.warnedType) { C.warnedType = true; toast("球種が未選択。もう一度押すと球種なしで保存"); setTimeout(() => { C.warnedType = false; }, 3000); return; }
     }
     C.warnedType = false;
     if (res === "X") return openBattedSheet((bb) => savePitch(g, res, bb));
@@ -490,7 +497,7 @@
     const id = `${g.id}_${String(pre.seq).padStart(4, "0")}`;
     // 画面はすぐ進める（電波が悪いときも、送信は裏で続く）
     C.pitches = C.pitches.filter((x) => x.id !== id).concat([{ id, ...doc }]).sort((a, c) => a.seq - c.seq);
-    FB.addPitch(id, doc).catch((e) => { console.error(e); toast("この球を保存できませんでした。通信状態を確認してください"); });
+    FB.addPitch(id, doc).catch((e) => { console.error(e); toast("この球を保存できなかった。通信状態を確認"); });
     saveLive(g, out.s);
     if (out.paEnd) toast(`${doc.batterName || "打者"}：${PA_LABEL[out.pa]}${doc.bbPos ? "（" + posLabel(doc.bbPos) + "）" : ""}`);
     if (out.s.half !== pre.half) toast(`チェンジ（${halfLabel(out.s)}へ）`);
@@ -499,15 +506,15 @@
     updateLiveParts(g, out.s);
   }
   function onUndo() {
-    const g = game(); if (!g || !C.pitches.length) { toast("取り消す球がありません"); return; }
+    const g = game(); if (!g || !C.pitches.length) { toast("取り消す球がない"); return; }
     const last = C.pitches[C.pitches.length - 1];
     if (!C.confirmUndo) { C.confirmUndo = true; $("clUndo").textContent = "本当に取り消す"; setTimeout(() => { C.confirmUndo = false; const b = $("clUndo"); if (b) b.textContent = "1球取り消し"; }, 3000); return; }
     C.confirmUndo = false; $("clUndo").textContent = "1球取り消し";
     let pre; try { pre = JSON.parse(last.pre); } catch (e) { pre = null; }
     C.pitches = C.pitches.filter((x) => x.id !== last.id);
-    FB.deletePitch(last.id).catch(() => toast("取り消せませんでした"));
+    FB.deletePitch(last.id).catch(() => toast("取り消せなかった"));
     if (pre) { pre.runs = (g.live && g.live.runs) || pre.runs; saveLive(g, pre); }
-    toast(`取り消しました（${RES_LABEL[last.result]}）`);
+    toast(`取り消した（${RES_LABEL[last.result]}）`);
     updateLiveParts(g, liveOf(g));
   }
   // ---------- 打球の入力（種類・方向・結果） ----------
@@ -562,7 +569,7 @@
       <div class="cl-adjust">
         <div class="row small"><span class="cl-al">ボール</span><button class="btn small" data-adj="balls:-1">−</button><button class="btn small" data-adj="balls:1">＋</button>
           <span class="cl-al">ストライク</span><button class="btn small" data-adj="strikes:-1">−</button><button class="btn small" data-adj="strikes:1">＋</button></div>
-        <div class="row small"><span class="cl-al">アウト</span><button class="btn small" data-adj="outs:-1">−</button><button class="btn small" data-adj="outs:1">＋（盗塁死など）</button></div>
+        <div class="row small"><span class="cl-al">アウト</span><button class="btn small" data-adj="outs:-1">−</button><button class="btn small" data-adj="outs:1">＋</button></div>
         <div class="row small"><span class="cl-al">イニング</span><button class="btn small" data-adj="half:-1">◀ 前へ</button><button class="btn small" data-adj="half:1">次へ ▶</button></div>
         <div class="row small"><span class="cl-al">打順</span><button class="btn small" data-adj="slot:-1">◀ 前の打者</button><button class="btn small" data-adj="slot:1">次の打者 ▶</button></div>
         <div class="row small"><span class="cl-al">得点</span><button class="btn small" data-adj="run:-1">−1</button><button class="btn small turf" data-adj="run:1">＋1（攻撃中のチーム）</button></div>
@@ -593,7 +600,7 @@
       <div class="row"><b class="grow">${kind === "pitcher" ? "投手を選ぶ" : `${s.slot[team] + 1}番の打者を選ぶ`}（${esc(teamName(g, team))}）</b><button class="btn small ghost" id="pkClose" type="button">やめる</button></div>
       <div class="row small"><span>${kind === "pitcher" ? "投げる手" : "打つ側"}</span>
         <select id="pkHand" class="ch-hand"><option value="R">右</option><option value="L">左</option>${kind === "batter" ? `<option value="S">両</option>` : ""}</select></div>
-      <div class="cl-pick">${sorted.map((p) => `<button type="button" class="btn small ${cur && cur.pid === p.uid ? "primary" : ""}" data-pk="${esc(p.uid)}">${esc(pname(p))}</button>`).join("") || `<span class="small muted">名簿に選手がいません</span>`}</div>
+      <div class="cl-pick">${sorted.map((p) => `<button type="button" class="btn small ${cur && cur.pid === p.uid ? "primary" : ""}" data-pk="${esc(p.uid)}">${esc(pname(p))}</button>`).join("") || `<span class="small muted">名簿に選手がいない</span>`}</div>
       <div class="row"><input type="text" id="pkNum" class="ch-num" inputmode="numeric" maxlength="4" placeholder="背番号"><input type="text" id="pkName" class="grow" maxlength="40" placeholder="名簿にいない選手の名前"><button class="btn small" id="pkAdd" type="button">追加して選ぶ</button></div>
     </div>`;
     const close = () => { sh.hidden = true; sh.innerHTML = ""; };
@@ -608,7 +615,7 @@
       else {
         const lineup = clone(g2.lineup || { us: [], opp: [] }); lineup[team] = lineup[team] || []; while (lineup[team].length < 9) lineup[team].push(null);
         lineup[team][s2.slot[team]] = r; g2.lineup = lineup;
-        FB.updateGame(g2.id, { lineup, date: g2.date, opponent: g2.opponent }).catch(() => toast("保存できませんでした"));
+        FB.updateGame(g2.id, { lineup, date: g2.date, opponent: g2.opponent }).catch(() => toast("保存できなかった"));
       }
       if (pref.uid && pref[key] !== r.hand) FB.updatePlayer(pref.uid, { [key]: r.hand }).catch(() => {});
       close(); updateLiveParts(g2, liveOf(g2)); toast(`${kind === "pitcher" ? "投手" : "打者"}：${pname(r)}`);
@@ -621,7 +628,7 @@
         const extra = { number, [key]: h }; if (team === "opp") extra.team = g.opponent;
         const uid = await FB.addPlayer(name, extra);
         choose({ uid, name, number, [key]: h });
-      } catch (e) { toast("追加できませんでした"); }
+      } catch (e) { toast("追加できなかった"); }
     };
   }
 
@@ -669,7 +676,7 @@
   const pitchVideoTime = (p) => (isNum(p.vt) ? p.vt : p.at && isNum(C.video.t0) ? (p.at - C.video.t0) / 1000 : null);
   function renderPitchList() {
     const el = $("clList"); if (!el) return;
-    if (!C.pitches.length) { el.innerHTML = `<p class="small muted">まだ球がありません</p>`; return; }
+    if (!C.pitches.length) { el.innerHTML = `<p class="small muted">まだ球がない</p>`; return; }
     let lastHalf = "";
     el.innerHTML = C.pitches.map((p) => {
       const h = halfLabel(p), head = h !== lastHalf ? `<div class="cl-lh">${h}</div>` : ""; lastHalf = h;
@@ -682,9 +689,9 @@
     syncMsg();
     $("clSync1").onclick = () => {
       const p = C.pitches.find((x) => x.id === C.sel.editId); if (!p || !C.videoEl) return;
-      if (isNum(p.vt)) { toast("この球は動画の位置つきで入れた球です（合わせる必要はありません）"); return; }
+      if (isNum(p.vt)) { toast("この球は動画の位置つきで入れた球（合わせる必要なし）"); return; }
       C.video.t0 = p.at - (C.videoEl.currentTime + 2.5) * 1000; // 入力は投げてから2.5秒くらい後が多い
-      C.video.synced = true; pref.set(syncKey(), { t0: C.video.t0 }); syncMsg(); toast("時刻を合わせました");
+      C.video.synced = true; pref.set(syncKey(), { t0: C.video.t0 }); syncMsg(); toast("時刻を合わせた");
     };
   }
   function selectPitch(id) {
@@ -700,10 +707,101 @@
     const t = C.sel.typeId ? typeById(C.sel.typeId) : null;
     const patch = { typeId: t ? t.id : "", typeName: t ? t.name : "", speed: C.sel.speed ? +C.sel.speed : null, zx: C.sel.zone ? C.sel.zone.x : null, zy: C.sel.zone ? C.sel.zone.y : null, zview: "P" };
     Object.assign(p, patch);
-    FB.updatePitch(p.id, patch).catch((e) => { console.error(e); toast("保存できませんでした"); });
+    FB.updatePitch(p.id, patch).catch((e) => { console.error(e); toast("保存できなかった"); });
     // 次の、球種が入っていない球へ
     const i = C.pitches.indexOf(p), next = C.pitches.slice(i + 1).find((x) => !x.typeId) || C.pitches[i + 1];
-    if (next) selectPitch(next.id); else { C.sel = { typeId: null, zone: null, speed: "", editId: null }; updateLiveParts(game(), liveOf(game())); toast("最後の球まで入れました"); }
+    if (next) selectPitch(next.id); else { C.sel = { typeId: null, zone: null, speed: "", editId: null }; updateLiveParts(game(), liveOf(game())); toast("最後の球まで入れた"); }
+  }
+
+  // ===================== チームの名簿 =====================
+  const byNumber = (a, b) => (parseInt(a.number) || 999) - (parseInt(b.number) || 999) || (a.name || "").localeCompare(b.name || "", "ja");
+  function renderTeams(r) {
+    const list = teams();
+    const row = (key, name, n) => `<button type="button" class="cl-li" data-team="${esc(key)}"><b class="grow">${esc(name)}</b><span class="small muted">${n}人</span></button>`;
+    r.innerHTML = `
+      <div class="card">
+        <div class="row"><button class="btn small ghost" id="chBack" type="button">← 戻る</button><h2 class="grow">チームの名簿</h2></div>
+        <div class="cl-list">
+          ${row("", "自チーム", ourPlayers().length)}
+          ${list.map((t) => row(t, t, oppPlayers(t).length)).join("")}
+        </div>
+        <div class="row"><input type="text" id="tmNew" class="grow" maxlength="40" placeholder="相手チームの名前"><button class="btn small primary" id="tmAdd" type="button">チームを追加</button></div>
+      </div>`;
+    $("chBack").onclick = () => go("home");
+    r.querySelectorAll("[data-team]").forEach((b) => (b.onclick = () => { C.team = b.dataset.team; go("team"); }));
+    $("tmAdd").onclick = () => {
+      const t = $("tmNew").value.trim(); if (!t) { $("tmNew").focus(); return; }
+      C.team = t; go("team");
+    };
+  }
+  function renderTeam(r) {
+    const team = C.team || "", own = !team;
+    const ps = (own ? ourPlayers() : oppPlayers(team)).slice().sort(byNumber);
+    const hs = (cls, pid, val, both) => `<select class="ch-hand ${cls}" data-pid="${esc(pid)}" aria-label="${cls === "tm-t" ? "投" : "打"}">
+      <option value="" ${val ? "" : "selected"}>${cls === "tm-t" ? "投" : "打"}</option><option value="R" ${val === "R" ? "selected" : ""}>右${cls === "tm-t" ? "投" : "打"}</option><option value="L" ${val === "L" ? "selected" : ""}>左${cls === "tm-t" ? "投" : "打"}</option>${both ? `<option value="S" ${val === "S" ? "selected" : ""}>両打</option>` : ""}</select>`;
+    r.innerHTML = `
+      <div class="card">
+        <div class="row"><button class="btn small ghost" id="chBack" type="button">← 戻る</button><h2 class="grow">${own ? "自チーム" : esc(team)}</h2>
+          ${own ? "" : `<button class="btn small ghost" id="tmRename" type="button">名前を変える</button>`}</div>
+        <div id="tmRenameBox" class="row" hidden><input type="text" id="tmName" class="grow" maxlength="40" value="${esc(team)}"><button class="btn small primary" id="tmRenameOk" type="button">変える</button></div>
+        <div class="stack" style="gap:6px">
+          ${ps.map((p) => `<div class="ch-lrow tm-row">
+            <input type="text" class="ch-num tm-n" data-pid="${esc(p.uid)}" inputmode="numeric" maxlength="4" placeholder="背番号" value="${esc(p.number || "")}">
+            <input type="text" class="grow tm-name" data-pid="${esc(p.uid)}" maxlength="40" value="${esc(p.name)}">
+            ${hs("tm-t", p.uid, p.throws, false)}${hs("tm-b", p.uid, p.bats, true)}
+            <button class="btn small ghost" data-del="${esc(p.uid)}" type="button">${C.confirmDel === p.uid ? "本当に消す" : "消す"}</button></div>`).join("") || `<p class="small muted">選手がいない</p>`}
+        </div>
+      </div>
+      <div class="card">
+        <h2>選手を追加</h2>
+        <div class="ch-lrow tm-row">
+          <input type="text" id="tmAddN" class="ch-num" inputmode="numeric" maxlength="4" placeholder="背番号">
+          <input type="text" id="tmAddName" class="grow" maxlength="40" placeholder="名前">
+          <select id="tmAddT" class="ch-hand" aria-label="投"><option value="">投</option><option value="R">右投</option><option value="L">左投</option></select>
+          <select id="tmAddB" class="ch-hand" aria-label="打"><option value="">打</option><option value="R">右打</option><option value="L">左打</option><option value="S">両打</option></select>
+        </div>
+        <button class="btn red" id="tmAddBtn" type="button">追加</button>
+      </div>
+      ${own ? "" : `<div class="card"><button class="btn ghost" id="tmDel" type="button">${C.confirmDel === "team:" + team ? "本当にこのチームの名簿を全部消す" : "このチームの名簿を消す"}</button></div>`}`;
+    $("chBack").onclick = () => go("teams");
+    const upd = (pid, patch) => FB.updatePlayer(pid, patch).catch(() => toast("保存できなかった"));
+    r.querySelectorAll(".tm-n").forEach((x) => (x.onchange = () => upd(x.dataset.pid, { number: x.value.trim() })));
+    r.querySelectorAll(".tm-name").forEach((x) => (x.onchange = () => { const v = x.value.trim(); if (v) upd(x.dataset.pid, { name: v }); }));
+    r.querySelectorAll(".tm-t").forEach((x) => (x.onchange = () => { if (x.value) upd(x.dataset.pid, { throws: x.value }); }));
+    r.querySelectorAll(".tm-b").forEach((x) => (x.onchange = () => { if (x.value) upd(x.dataset.pid, { bats: x.value }); }));
+    r.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
+      const id = b.dataset.del;
+      if (C.confirmDel !== id) { C.confirmDel = id; renderTeam(r); setTimeout(() => { if (C.confirmDel === id) { C.confirmDel = null; if (C.view === "team") renderTeam(root()); } }, 4000); return; }
+      C.confirmDel = null;
+      try { await FB.deletePlayer(id); toast("消した"); } catch (e) { toast("消せなかった"); }
+    }));
+    const add = async () => {
+      const name = $("tmAddName").value.trim(); if (!name) { $("tmAddName").focus(); return; }
+      const extra = { number: $("tmAddN").value.trim(), throws: $("tmAddT").value, bats: $("tmAddB").value };
+      if (!own) extra.team = team;
+      if ((own ? ourPlayers() : oppPlayers(team)).some((p) => p.name === name)) { toast("同じ名前の選手がいる"); return; }
+      try { await FB.addPlayer(name, extra); toast(`${name}を追加した`); C.keepAddFocus = true; } catch (e) { toast("追加できなかった"); }
+    };
+    $("tmAddBtn").onclick = add;
+    $("tmAddName").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } });
+    if (C.keepAddFocus) { C.keepAddFocus = false; $("tmAddN").focus(); }
+    if (!own) {
+      $("tmRename").onclick = () => { $("tmRenameBox").hidden = !$("tmRenameBox").hidden; };
+      $("tmRenameOk").onclick = async () => {
+        const nv = $("tmName").value.trim(); if (!nv || nv === team) return;
+        try {
+          for (const p of oppPlayers(team)) await FB.updatePlayer(p.uid, { team: nv });
+          for (const g of C.games.filter((x) => x.opponent === team)) await FB.updateGame(g.id, { opponent: nv, date: g.date });
+          C.team = nv; toast("チーム名を変えた"); renderTeam(r);
+        } catch (e) { console.error(e); toast("変えられなかった"); }
+      };
+      $("tmDel").onclick = async () => {
+        const k = "team:" + team;
+        if (C.confirmDel !== k) { C.confirmDel = k; renderTeam(r); setTimeout(() => { if (C.confirmDel === k) { C.confirmDel = null; if (C.view === "team") renderTeam(root()); } }, 4000); return; }
+        C.confirmDel = null;
+        try { for (const p of oppPlayers(team)) await FB.deletePlayer(p.uid); toast("名簿を消した"); go("teams"); } catch (e) { toast("消せなかった"); }
+      };
+    }
   }
 
   // ===================== 球種の設定 =====================
@@ -722,15 +820,15 @@
     r.innerHTML = `<div class="card">
       <div class="row"><button class="btn small ghost" id="chBack" type="button">← 戻る</button><h2 class="grow">球種の設定</h2></div>
       <div id="tyList" class="stack" style="gap:6px"></div>
-      <div class="row"><input type="text" id="tyNew" class="grow" maxlength="12" placeholder="追加する球種（例：ナックル）"><button class="btn small" id="tyAdd" type="button">追加</button></div>
+      <div class="row"><input type="text" id="tyNew" class="grow" maxlength="12" placeholder="追加する球種"><button class="btn small" id="tyAdd" type="button">追加</button></div>
       <button class="btn red" id="tySave" type="button">保存する</button></div>`;
     draw();
     $("chBack").onclick = () => go("home");
     $("tyAdd").onclick = () => { const n = $("tyNew").value.trim(); if (!n) return; list.push({ id: "t" + Date.now().toString(36), name: n, hidden: false }); $("tyNew").value = ""; draw(); };
     $("tySave").onclick = async () => {
       const clean = list.map((t) => ({ id: t.id, name: (t.name || "").trim() || "名前なし", hidden: !!t.hidden }));
-      try { C.types = clean; await FB.setSetting("pitchTypes", { types: clean, updatedAt: new Date().toISOString() }); toast("球種を保存しました"); go("home"); }
-      catch (e) { console.error(e); toast("保存できませんでした"); }
+      try { C.types = clean; await FB.setSetting("pitchTypes", { types: clean, updatedAt: new Date().toISOString() }); toast("球種を保存した"); go("home"); }
+      catch (e) { console.error(e); toast("保存できなかった"); }
     };
   }
 
@@ -766,9 +864,9 @@
     if (soft && C.stats.game !== C.gameId) return;
     if (soft) C.statsKey = null;
     const st = C.stats;
-    r.innerHTML = `<div class="card"><p class="small muted">集計しています…</p></div>`;
+    r.innerHTML = `<div class="card"><p class="small muted">集計中…</p></div>`;
     let all;
-    try { all = await loadStatsPitches(); } catch (e) { console.error(e); r.innerHTML = `<div class="card"><p>読み込めませんでした。</p><button class="btn small" id="chBack">← 戻る</button></div>`; $("chBack").onclick = () => go("home"); return; }
+    try { all = await loadStatsPitches(); } catch (e) { console.error(e); r.innerHTML = `<div class="card"><p>読み込めなかった</p><button class="btn small" id="chBack">← 戻る</button></div>`; $("chBack").onclick = () => go("home"); return; }
     if (C.view !== "stats") return;
     const ps = all.filter((p) => (st.side === "opp" ? (st.tab === "p" ? p.pTeam === "opp" : p.bTeam === "opp") : (st.tab === "p" ? p.pTeam === "us" : p.bTeam === "us")));
     const gOpts = `<option value="all">全試合</option>` + C.games.map((g) => `<option value="${esc(g.id)}" ${st.game === g.id ? "selected" : ""}>${esc(g.date)} vs ${esc(g.opponent)}</option>`).join("");
@@ -801,7 +899,7 @@
     $("stList").innerHTML = groups.length ? `<h2>投手</h2><div class="tablewrap"><table class="metrics st-table"><thead><tr><th>投手</th><th>球数</th><th>打者</th><th>三振</th><th>四死球</th><th>被安打</th><th>ストライク率</th><th>初球ストライク</th><th>空振り率</th></tr></thead><tbody>
       ${groups.map(([k, g]) => { const s = paSummary(g), f = g.filter((p) => p.balls === 0 && p.strikes === 0); const p0 = g[0];
         return `<tr data-who="${esc(k)}" class="${C.stats.who === k ? "on" : ""}"><td>${esc((p0.pitcherNo ? "#" + p0.pitcherNo + " " : "") + (p0.pitcherName || "不明"))}${p0.pThrows ? `<span class="small muted">（${HAND[p0.pThrows]}）</span>` : ""}</td><td>${g.length}</td><td>${s.pa}</td><td>${s.k}</td><td>${s.bb + s.hbp}</td><td>${s.h}</td><td>${pct(g.filter(isStrike).length, g.length)}</td><td>${pct(f.filter(isStrike).length, f.length)}</td><td>${pct(g.filter((p) => p.result === "SS").length, g.filter(isSwing).length)}</td></tr>`; }).join("")}
-      </tbody></table></div>` : `<p class="small muted">まだ記録がありません。</p>`;
+      </tbody></table></div>` : `<p class="small muted">まだ記録がない</p>`;
     $("stList").querySelectorAll("[data-who]").forEach((tr) => (tr.onclick = () => { C.stats.who = tr.dataset.who; renderPitcherTable(ps); }));
     const sel = groups.find(([k]) => k === C.stats.who);
     $("stDetail").innerHTML = ""; if (sel) renderPitcherDetail(sel[1]);
@@ -851,7 +949,7 @@
     $("stList").innerHTML = groups.length ? `<h2>打者</h2><div class="tablewrap"><table class="metrics st-table"><thead><tr><th>打者</th><th>打席</th><th>打数</th><th>安打</th><th>打率</th><th>三振</th><th>四死球</th><th>スイング率</th><th>ボール球スイング</th><th>空振り率</th><th>初球スイング</th></tr></thead><tbody>
       ${groups.map(([k, g]) => { const s = paSummary(g), z = g.filter(hasZone), oz = z.filter((p) => !inZone(p)), f = g.filter((p) => p.balls === 0 && p.strikes === 0), b0 = g[0];
         return `<tr data-who="${esc(k)}" class="${C.stats.who === k ? "on" : ""}"><td>${esc((b0.batterNo ? "#" + b0.batterNo + " " : "") + (b0.batterName || "不明"))}${b0.bHand ? `<span class="small muted">（${HAND[b0.bHand]}）</span>` : ""}</td><td>${s.pa}</td><td>${s.ab}</td><td>${s.h}</td><td>${s.avg}</td><td>${s.k}</td><td>${s.bb + s.hbp}</td><td>${pct(g.filter(isSwing).length, g.length)}</td><td>${pct(oz.filter(isSwing).length, oz.length)}</td><td>${pct(g.filter((p) => p.result === "SS").length, g.filter(isSwing).length)}</td><td>${pct(f.filter(isSwing).length, f.length)}</td></tr>`; }).join("")}
-      </tbody></table></div>` : `<p class="small muted">まだ記録がありません。</p>`;
+      </tbody></table></div>` : `<p class="small muted">まだ記録がない</p>`;
     $("stList").querySelectorAll("[data-who]").forEach((tr) => (tr.onclick = () => { C.stats.who = tr.dataset.who; renderBatterTable(ps); }));
     const sel = groups.find(([k]) => k === C.stats.who);
     $("stDetail").innerHTML = ""; if (sel) renderBatterDetail(sel[1]);
@@ -872,7 +970,7 @@
       </div>
       <div class="card">
         <div class="stack">
-          <div><div class="chart-title">打球方向</div><div class="legend"><span><i style="background:#46a758"></i>ヒット</span><span><i style="background:#8d8d8d"></i>アウトなど</span></div><canvas class="st-field" id="stF" style="max-width:420px"></canvas></div>
+          <div><div class="chart-title">打球方向</div><div class="legend"><span><i style="background:#46a758"></i>ヒット</span><span><i style="background:#8d8d8d"></i>その他</span></div><canvas class="st-field" id="stF" style="max-width:420px"></canvas></div>
           <div><div class="chart-title">投げられたコース（投手目線）</div><div class="legend"><span><i style="background:#e5484d"></i>空振り</span><span><i style="background:#f5a524"></i>ファウル</span><span><i style="background:#46a758"></i>打球</span><span><i style="background:#3e63dd"></i>見逃し</span><span><i style="background:#8d8d8d"></i>ボール</span></div><canvas class="st-zone" id="stZB" style="max-width:340px"></canvas></div>
         </div>
       </div>`;
